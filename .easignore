@@ -1,0 +1,26 @@
+# Ignore all backend stuff
+../backend/
+
+# Ignore datasets, images, ML models
+../data/
+../metadata/
+../models/
+../training/
+
+
+# Ignore docker stuff
+docker/
+docker-compose*
+*.img
+
+# Ignore build artifacts
+node_modules
+.expo
+.expo-shared
+dist/
+build/
+web-build/
+
+# Misc
+*.log
+.DS_Store
