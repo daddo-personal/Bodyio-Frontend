@@ -1,6 +1,6 @@
-import { View, Text, TouchableOpacity, Alert } from "react-native";
-import { useRouter } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useRouter } from "expo-router";
+import { Alert, Text, TouchableOpacity, View } from "react-native";
 
 export default function HomeScreen() {
   const router = useRouter();
@@ -9,8 +9,13 @@ export default function HomeScreen() {
     try {
       const seen = await AsyncStorage.getItem("seenOnboarding");
 
-      if (seen === "true") router.push("/upload");
-      else router.push("/onboarding");
+      if (seen == "true") {
+        router.push("/upload");
+      }
+      else {
+        router.push("/onboarding");
+        await AsyncStorage.setItem("seenOnboarding", "true");
+      }
     } catch (error) {
       console.error("Error checking onboarding:", error);
       Alert.alert("Error", "Something went wrong. Try again.");
@@ -25,7 +30,7 @@ export default function HomeScreen() {
       alignItems: "center",
       padding: 24,
     }}>
-      
+
       {/* Heading */}
       <Text style={{
         fontSize: 26,

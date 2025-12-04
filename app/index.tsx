@@ -1,7 +1,7 @@
 // app/index.tsx
-import { useRouter, useRootNavigationState } from "expo-router";
-import { useEffect } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useRootNavigationState, useRouter } from "expo-router";
+import { useEffect } from "react";
 
 export default function IndexRedirect() {
   const router = useRouter();
@@ -12,15 +12,10 @@ export default function IndexRedirect() {
 
     const init = async () => {
       try {
-        const seen = await AsyncStorage.getItem("seenOnboarding");
-
         // 2️⃣ Check if user is logged in
         const savedUser = await AsyncStorage.getItem("user");
 
-        if (!seen) {
-          // 👉 first time user — show onboarding
-          router.replace("/onboarding");
-        } else if (savedUser) {
+        if (savedUser) {
           // 👉 already logged in — go to home dashboard
           router.replace("/(tabs)/home");
         } else {

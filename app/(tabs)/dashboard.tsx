@@ -1,24 +1,25 @@
 // 📊 DashboardScreen.tsx (updated chart setup with daily averaging)
-import React, { useState, useCallback, useRef } from "react";
-import {
-  View,
-  Text,
-  Dimensions,
-  ActivityIndicator,
-  TouchableOpacity,
-  ScrollView,
-  SafeAreaView,
-  Alert,
-  StyleSheet,
-  Modal,
-} from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { LineChart } from "react-native-chart-kit";
-import Constants from "expo-constants";
-import { BlurView } from "expo-blur";
-import { useRouter } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
+import Constants from "expo-constants";
+import { useRouter } from "expo-router";
 import { DateTime } from "luxon";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import Purchases from "react-native-purchases";
+
+import {
+  ActivityIndicator,
+  Alert,
+  Dimensions,
+  Modal,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
+import { LineChart } from "react-native-chart-kit";
 
 const API_URL = Constants.expoConfig.extra.apiUrl;
 
@@ -92,6 +93,37 @@ export default function DashboardScreen() {
       loadUser();
     }, [])
   );
+
+  // ----------------------
+  // NEW: Self-Healing Premium Verification (calls your new endpoint)
+  // ----------------------
+  useEffect(() => {
+    async function verifyPremium() {
+      if (!userId) return;
+      try {
+        const info = await Purchases.getCustomerInfo();
+        const premium = !!info.entitlements.active["BodyIO Pro"];
+
+        // Instantly update UI
+        setIsPremium(premium);
+
+        // Update local storage immediately
+        const saved = await AsyncStorage.getItem("user");
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          parsed.is_premium = premium;
+          await AsyncStorage.setItem("user", JSON.stringify(parsed));
+        }
+
+        // Background sync to backend
+        fetch(`${API_URL}/users/${userId}/verify_premium`).catch(() => { });
+      } catch (err) {
+        console.log("Premium verify failed:", err);
+      }
+    };
+    verifyPremium();
+  }, [userId]);
+
 
   // ----------------------
   // Fetch chart & latest metrics

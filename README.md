@@ -16,6 +16,18 @@ This is an [Expo](https://expo.dev) project created with [`create-expo-app`](htt
    npm install
    ```
 
+### Expo EAS ios build
+https://expo.dev/accounts/daddo0823/settings/apple-devices to register device
+eas build -p ios --profile development
+npx expo start
+
+## List secrets
+eas secret:list
+
+### Using ios TestFlight
+eas build -p ios --profile production
+eas submit -p ios --latest
+
 2. Start the app
 
    ```bash
@@ -54,3 +66,4 @@ Join our community of developers creating universal apps.
 
 - [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
 - [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+

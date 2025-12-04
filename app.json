@@ -9,6 +9,11 @@
     "scheme": "frontend",
     "userInterfaceStyle": "automatic",
     "sdkVersion": "54.0.0",
+
+    "experiments": {
+      "nt": true
+    },
+
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.daddo0823.bodyio",
@@ -18,6 +23,7 @@
         "NSPhotoLibraryUsageDescription": "We need photo library access so you can select your body photos."
       }
     },
+
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
@@ -25,15 +31,15 @@
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
-      "permissions": [
-        "android.permission.RECORD_AUDIO"
-      ],
+      "permissions": ["android.permission.RECORD_AUDIO"],
       "package": "com.daddo0823.bodyio"
     },
+
     "web": {
       "output": "static",
       "favicon": "./assets/images/favicon.png"
     },
+
     "plugins": [
       "expo-router",
       [
@@ -43,9 +49,7 @@
           "imageWidth": 200,
           "resizeMode": "contain",
           "backgroundColor": "#ffffff",
-          "dark": {
-            "backgroundColor": "#000000"
-          }
+          "dark": { "backgroundColor": "#000000" }
         }
       ],
       [
@@ -59,12 +63,14 @@
       "expo-web-browser",
       "react-native-iap"
     ],
+
     "extra": {
       "router": {},
       "eas": {
         "projectId": "cf2c3344-dff9-49db-8b3e-aeaad2df071e"
       },
-      "apiUrl": "http://10.0.0.63:8080"
+      "apiUrl": "http://10.0.0.63:8080",
+      "revenuecatApiKey": "appl_KKLWsknJBuTltPOXWbgbZEYBvPu"
     }
   }
 }

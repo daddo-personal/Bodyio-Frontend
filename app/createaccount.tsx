@@ -1,11 +1,18 @@
-import { useRouter } from "expo-router";
-import React, { useState, useEffect } from "react";
-import { View, Text, TextInput, TouchableOpacity, Alert, Image, SafeAreaView, ScrollView } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import * as AuthSession from "expo-auth-session";
-import * as WebBrowser from "expo-web-browser";
 import * as Google from "expo-auth-session/providers/google";
 import Constants from "expo-constants";
+import { useRouter } from "expo-router";
+import * as WebBrowser from "expo-web-browser";
+import React, { useEffect, useState } from "react";
+import {
+  Alert,
+  Image,
+  SafeAreaView,
+  ScrollView,
+  Text,
+  TextInput,
+  TouchableOpacity
+} from "react-native";
 
 const API_URL = Constants.expoConfig.extra.apiUrl;
 
@@ -18,34 +25,69 @@ export default function CreateAccount() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
+  // -------------------------
+  // Google OAuth config
+  // -------------------------
   const [request, response, promptAsync] = Google.useAuthRequest({
-    iosClientId: "974834514847-ia5odto5ftc4laovp6oc3q3ch44ghi8r.apps.googleusercontent.com",
+    iosClientId:
+      "974834514847-ia5odto5ftc4laovp6oc3q3ch44ghi8r.apps.googleusercontent.com",
     scopes: ["profile", "email"],
+    // If you also support Android/Web later:
+    // androidClientId: "...",
+    // webClientId: "...",
   });
 
   useEffect(() => {
     if (response?.type === "success") {
       const { authentication } = response;
       if (authentication?.accessToken) {
-        fetchUserInfo(authentication.accessToken);
+        // 🔑 Send token to your backend
+        signupWithGoogleOnBackend(authentication.accessToken);
+      } else {
+        Alert.alert("Error", "No access token returned from Google.");
       }
     }
   }, [response]);
 
-  const fetchUserInfo = async (token: string) => {
+
+  // 2) Tell YOUR backend: “Here is a Google user, create/login them”
+  const signupWithGoogleOnBackend = async (accessToken: string) => {
     try {
-      const res = await fetch("https://www.googleapis.com/userinfo/v2/me", {
-        headers: { Authorization: `Bearer ${token}` },
+      const res = await fetch(`${API_URL}/auth/google`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ access_token: accessToken }),
       });
-      const user = await res.json();
-      await AsyncStorage.setItem("user", JSON.stringify(user));
-      Alert.alert("✅ Signed in", `Welcome ${user.name}`);
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        console.error("Backend Google auth error:", data);
+        Alert.alert(
+          "Error",
+          data.detail || "Could not sign in with Google. Please try again."
+        );
+        return;
+      }
+
+      await AsyncStorage.setItem("user", JSON.stringify(data));
+
+      const displayName =
+        data.first_name || data.last_name
+          ? `${data.first_name || ""} ${data.last_name || ""}`.trim()
+          : data.email || "there";
+
+      Alert.alert("✅ Account created!", `Welcome ${displayName}!`);
+      router.replace("/userinfo");
     } catch (err) {
-      console.error("Error fetching user info", err);
-      Alert.alert("Error", "Could not fetch Google user info.");
+      console.error("Google signup backend error", err);
+      Alert.alert("Network error", "Could not reach server. Please try again.");
     }
   };
 
+  // -------------------------
+  // Classic email/password signup
+  // -------------------------
   const handleSignup = async () => {
     if (!firstName || !lastName || !email || !password) {
       Alert.alert("Missing info", "Please fill all fields.");
@@ -111,7 +153,7 @@ export default function CreateAccount() {
           style={styles.input}
         />
 
-        {/* ✅ Sign Up */}
+        {/* ✅ Sign Up with email/password */}
         <TouchableOpacity
           onPress={handleSignup}
           style={[styles.button, { backgroundColor: "#fff", marginTop: 8 }]}
@@ -119,25 +161,44 @@ export default function CreateAccount() {
           <Text style={[styles.buttonText, { color: "#000" }]}>Sign Up</Text>
         </TouchableOpacity>
 
-        {/* ✅ Google Sign-In Button (dark gray variant) */}
+        {/* ✅ Google Sign-Up / Sign-In */}
         <TouchableOpacity
           disabled={!request}
           onPress={() => promptAsync()}
-          style={[styles.button, { backgroundColor: "#3c4043", flexDirection: "row", marginTop: 12, justifyContent: "center" }]}
+          style={[
+            styles.button,
+            {
+              backgroundColor: "#3c4043",
+              flexDirection: "row",
+              marginTop: 12,
+              justifyContent: "center",
+              opacity: request ? 1 : 0.6,
+            },
+          ]}
         >
           <Image
             source={{
-              uri: "https://upload.wikimedia.org/wikipedia/commons/5/53/Google_%22G%22_Logo.svg",
+              uri: "https://developers.google.com/identity/images/g-logo.png",
             }}
-            style={{ width: 20, height: 20, marginRight: 10, backgroundColor: "white", borderRadius: 10 }}
+            style={{
+              width: 20,
+              height: 20,
+              marginRight: 10,
+              backgroundColor: "white",
+              borderRadius: 10,
+            }}
           />
           <Text style={styles.buttonText}>Continue with Google</Text>
         </TouchableOpacity>
 
         {/* ✅ Already have account */}
-        <TouchableOpacity onPress={() => router.push("/auth")} style={{ marginTop: 16 }}>
+        <TouchableOpacity
+          onPress={() => router.push("/auth")}
+          style={{ marginTop: 16 }}
+        >
           <Text style={styles.linkText}>
-            Already have an account? <Text style={styles.linkHighlight}>Log in</Text>
+            Already have an account?{" "}
+            <Text style={styles.linkHighlight}>Log in</Text>
           </Text>
         </TouchableOpacity>
       </ScrollView>
@@ -145,7 +206,7 @@ export default function CreateAccount() {
   );
 }
 
-const styles = {
+const styles: any = {
   safeArea: {
     flex: 1,
     backgroundColor: "#1f1f1f",

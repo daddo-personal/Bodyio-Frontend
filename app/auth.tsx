@@ -1,23 +1,62 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as Google from "expo-auth-session/providers/google";
+import Constants from "expo-constants";
 import { useRouter } from "expo-router";
-import { useState } from "react";
+import * as WebBrowser from "expo-web-browser";
+import React, { useEffect, useState } from "react";
 import {
-  View,
+  Alert,
+  Image,
+  SafeAreaView,
   Text,
   TextInput,
   TouchableOpacity,
-  Alert,
-  SafeAreaView,
+  View,
 } from "react-native";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import Constants from "expo-constants";
+import Purchases from "react-native-purchases";
 
 const API_URL = Constants.expoConfig.extra.apiUrl;
+
+WebBrowser.maybeCompleteAuthSession();
 
 export default function AuthScreen() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
+  // 🔒 track whether *this* session is a Google login attempt
+  const [googleLoginRequested, setGoogleLoginRequested] = useState(false);
+
+  // -------------------------
+  // Google OAuth config
+  // -------------------------
+  const [request, response, promptAsync] = Google.useAuthRequest({
+    iosClientId:
+      "974834514847-ia5odto5ftc4laovp6oc3q3ch44ghi8r.apps.googleusercontent.com",
+    scopes: ["profile", "email"],
+  });
+
+  useEffect(() => {
+    // ✅ Only react to response if user actually tapped "Continue with Google"
+    if (!googleLoginRequested) return;
+
+    if (response?.type === "success") {
+      const { authentication } = response;
+      if (authentication?.accessToken) {
+        loginWithGoogleOnBackend(authentication.accessToken);
+      } else {
+        Alert.alert("Error", "No access token returned from Google.");
+        setGoogleLoginRequested(false);
+      }
+    } else if (response?.type === "error" || response?.type === "dismiss") {
+      // cleanup on cancel / error
+      setGoogleLoginRequested(false);
+    }
+  }, [response, googleLoginRequested]);
+
+  // -------------------------
+  // Email/password login
+  // -------------------------
   const handleLogin = async () => {
     if (!email || !password) {
       Alert.alert("Missing info", "Please enter email and password.");
@@ -32,8 +71,21 @@ export default function AuthScreen() {
       });
 
       const data = await res.json();
+
       if (res.ok) {
+        // 1. Save user
+        console.log("auth: ", JSON.stringify(data))
         await AsyncStorage.setItem("user", JSON.stringify(data));
+
+        // 2. LOGIN to RevenueCat 🔥
+        try {
+          const rcResult = await Purchases.logIn(String(data.id));
+          console.log("RevenueCat logIn (email):", rcResult);
+        } catch (e) {
+          console.log("RevenueCat logIn error (email):", e);
+        }
+
+        // 3. Redirect
         router.replace("/(tabs)/home");
       } else {
         Alert.alert("Login failed", data.detail || "Invalid credentials");
@@ -44,11 +96,55 @@ export default function AuthScreen() {
     }
   };
 
+  // -------------------------
+  // Google login → backend `/login/google`
+  // -------------------------
+  const loginWithGoogleOnBackend = async (accessToken: string) => {
+    try {
+      const res = await fetch(`${API_URL}/login/google`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ access_token: accessToken }),
+      });
+
+      const data = await res.json();
+
+      // reset the flag once we’ve handled the response
+      setGoogleLoginRequested(false);
+
+      if (!res.ok) {
+        console.error("Backend Google login error:", data);
+        Alert.alert(
+          "Error",
+          data.detail || "Could not sign in with Google. Please try again."
+        );
+        return;
+      }
+
+      // 1. Save user
+      await AsyncStorage.setItem("user", JSON.stringify(data));
+      console.log("auth loginWithGoogleOnBackend: ", JSON.stringify(data))
+      // 2. LOGIN to RevenueCat 🔥
+      try {
+        const rcResult = await Purchases.logIn(String(data.id));
+        console.log("RevenueCat logIn (google):", rcResult);
+      } catch (e) {
+        console.log("RevenueCat logIn error (google):", e);
+      }
+
+      // 3. Redirect
+      router.replace("/(tabs)/home");
+    } catch (err) {
+      console.error("Google login backend error", err);
+      setGoogleLoginRequested(false);
+      Alert.alert("Network error", "Could not reach server. Please try again.");
+    }
+  };
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.container}>
         <Text style={styles.title}>Welcome Back 👋</Text>
-        <Text style={styles.subtitle}>Log in to your Body.io account</Text>
 
         <TextInput
           placeholder="Email"
@@ -69,11 +165,47 @@ export default function AuthScreen() {
           style={styles.input}
         />
 
+        {/* Email/password login */}
         <TouchableOpacity
           onPress={handleLogin}
-          style={[styles.button, { backgroundColor: "#fff" }]} // white button
+          style={[styles.button, { backgroundColor: "#fff" }]}
         >
           <Text style={[styles.buttonText, { color: "#000" }]}>Log In</Text>
+        </TouchableOpacity>
+
+        {/* Google login */}
+        <TouchableOpacity
+          disabled={!request}
+          onPress={() => {
+            setGoogleLoginRequested(true);
+            promptAsync();
+          }}
+          style={[
+            styles.button,
+            {
+              backgroundColor: "#3c4043",
+              flexDirection: "row",
+              marginTop: 12,
+              justifyContent: "center",
+              opacity: request ? 1 : 0.6,
+            },
+          ]}
+        >
+          <Image
+            source={{
+              uri: "https://developers.google.com/identity/images/g-logo.png",
+            }}
+            style={{
+              width: 20,
+              height: 20,
+              marginRight: 10,
+              backgroundColor: "white",
+              borderRadius: 10,
+            }}
+          />
+          <Text style={[styles.buttonText, { color: "#fff" }]}>
+            Continue with Google
+          </Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -90,7 +222,7 @@ export default function AuthScreen() {
   );
 }
 
-const styles = {
+const styles: any = {
   safeArea: {
     flex: 1,
     backgroundColor: "#1f1f1f",

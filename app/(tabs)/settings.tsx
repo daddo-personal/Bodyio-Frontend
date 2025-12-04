@@ -1,24 +1,28 @@
-import React, { useState, useCallback } from "react";
+import * as FileSystem from 'expo-file-system/legacy';
+import * as Sharing from "expo-sharing";
+import React, { useCallback, useEffect, useState } from "react";
 import {
-  View,
-  Text,
-  TouchableOpacity,
-  Alert,
   ActivityIndicator,
-  TextInput,
-  ScrollView,
+  Alert,
   SafeAreaView,
+  ScrollView,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
+
+
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useRouter } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
 import Constants from "expo-constants";
-import * as Sharing from "expo-sharing";
-import * as FileSystem from 'expo-file-system/legacy';
+import { useRouter } from "expo-router";
 import DateTimePickerModal from "react-native-modal-datetime-picker";
 
+import Purchases from "react-native-purchases";
+import useRevenueCat from "../../hooks/useRevenueCat";
+
 const API_URL = Constants.expoConfig.extra.apiUrl;
-const years = Array.from({ length: 10 }, (_, i) => new Date().getFullYear() - i);
 
 export default function SettingsScreen() {
   const router = useRouter();
@@ -26,6 +30,7 @@ export default function SettingsScreen() {
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
+  const [downloading, setDownloading] = useState(false);
 
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
@@ -33,17 +38,34 @@ export default function SettingsScreen() {
   const [password, setPassword] = useState("");
   const [height, setHeight] = useState("");
   const [weight, setWeight] = useState("");
-  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear().toString());
+  const [customerInfo, setCustomerInfo] = useState<any>(null);
+
+  const [selectedYear, setSelectedYear] = useState(
+    new Date().getFullYear().toString()
+  );
   const [isYearPickerVisible, setYearPickerVisible] = useState(false);
-  const [downloading, setDownloading] = useState(false);
 
+  // RevenueCat offerings hook
+  const { offerings, loading: rcLoading } = useRevenueCat();
 
-  // ✅ Load user on screen focus
+  // -------------------------------------------
+  // Load user + customerInfo on screen focus
+  // -------------------------------------------
   useFocusEffect(
     useCallback(() => {
-      const loadUser = async () => {
+      async function loadCustomer() {
+        try {
+          const info = await Purchases.getCustomerInfo();
+          setCustomerInfo(info);
+        } catch (e) {
+          console.log("RevenueCat customer info error:", e);
+        }
+      }
+
+      async function loadUser() {
         try {
           const saved = await AsyncStorage.getItem("user");
+          console.log("Saved is: ", saved)
           if (!saved) {
             Alert.alert("Not logged in", "Please log in first.");
             router.replace("/auth");
@@ -61,6 +83,7 @@ export default function SettingsScreen() {
             setEmail(data.email || "");
             setHeight(data.height?.toString() || "");
             setWeight(data.weight?.toString() || "");
+
             await AsyncStorage.setItem("user", JSON.stringify(data));
           } else {
             setUser(parsed);
@@ -70,49 +93,169 @@ export default function SettingsScreen() {
             setHeight(parsed.height?.toString() || "");
             setWeight(parsed.weight?.toString() || "");
           }
-        } catch (err) {
-          console.error("Error loading user:", err);
+        } catch (e) {
+          console.error("User load error:", e);
         } finally {
           setLoading(false);
         }
-      };
+      }
 
+      loadCustomer();
       loadUser();
-    }, [])
+    }, [router])
   );
 
 
-  const handleDownloadData = async () => {
-    if (!user) return;
-    setDownloading(true);
-    try {
-      // Fetch user's metrics for the selected year
-      console.log("Selected year is ", selectedYear)
-      const res = await fetch(`${API_URL}/metrics_download?user_id=${user.id}&year=${selectedYear}`);
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({})); // try parsing JSON, fallback to empty
-        Alert.alert(errData.detail);
-        return;
-      }
+const handleDownloadData = async () => {
+  if (!user) return;
+  setDownloading(true);
 
-      // Save CSV to local file (legacy API)
-      const fileUri = `${FileSystem.documentDirectory}metrics_${selectedYear}.csv`;
-      await FileSystem.writeAsStringAsync(fileUri, csv, { encoding: "utf8" });
+  try {
+    console.log("Selected year is", selectedYear);
 
-      // Open share dialog
-      await Sharing.shareAsync(fileUri, {
-        mimeType: "text/csv",
-        dialogTitle: `Your Metrics Data (${selectedYear})`,
-        UTI: "public.comma-separated-values-text",
-      });
-    } catch (err) {
-      console.error(err);
-      Alert.alert("Error", "Failed to download your data.");
-    } finally {
-      setDownloading(false);
+    // 1. Fetch CSV from backend
+    const res = await fetch(
+      `${API_URL}/metrics_download?user_id=${user.id}&year=${selectedYear}`
+    );
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      Alert.alert(err.detail || "Failed to download data.");
+      return;
     }
-  };
 
+    // 2. Get raw CSV text
+    const csvText = await res.text();   // <-- THIS FIXES IT
+
+    // 3. Save CSV locally
+    const fileUri = `${FileSystem.documentDirectory}metrics_${selectedYear}.csv`;
+
+    await FileSystem.writeAsStringAsync(fileUri, csvText, {
+      encoding: FileSystem.EncodingType.UTF8,
+    });
+
+    // 4. Share CSV
+    await Sharing.shareAsync(fileUri, {
+      mimeType: "text/csv",
+      dialogTitle: `Your Metrics Data (${selectedYear})`,
+      UTI: "public.comma-separated-values-text",
+    });
+
+  } catch (err) {
+    console.error("CSV download error:", err);
+    Alert.alert("Error", "Failed to download your data.");
+  } finally {
+    setDownloading(false);
+  }
+};
+
+  // -------------------------------------------
+  // Ensure RevenueCat appUserID matches backend user.id
+  // -------------------------------------------
+  useEffect(() => {
+    async function ensureRevenueCatUser() {
+      if (!user?.id) return;
+
+      try {
+        const expectedId = String(user.id);
+        const currentId = await Purchases.getAppUserID();
+        console.log("RC current appUserID:", currentId, "expected:", expectedId);
+
+        if (currentId !== expectedId) {
+          const result = await Purchases.logIn(expectedId);
+          console.log("RevenueCat logIn result (settings):", result);
+
+          // refresh customer info after logIn
+          const info = await Purchases.getCustomerInfo();
+          setCustomerInfo(info);
+          console.log("RC customerInfo after logIn:", info);
+        }
+      } catch (e) {
+        console.log("RevenueCat logIn / ensure user error:", e);
+      }
+    }
+
+    ensureRevenueCatUser();
+  }, [user?.id]);
+
+  // -------------------------------------------
+  // Self-heal premium from RevenueCat backend (/verify_premium)
+  // -------------------------------------------
+  useEffect(() => {
+    async function syncPremiumFromBackend() {
+      if (!user?.id) return;
+
+      try {
+        const res = await fetch(`${API_URL}/users/${user.id}/verify_premium`);
+        if (!res.ok) {
+          console.log("verify_premium failed:", res.status);
+          return;
+        }
+        const data = await res.json();
+        console.log("verify_premium response:", data);
+
+        // If backend updated is_premium, refetch user
+        const userRes = await fetch(`${API_URL}/users/${user.id}`);
+        if (userRes.ok) {
+          const updatedUser = await userRes.json();
+          setUser(updatedUser);
+          await AsyncStorage.setItem("user", JSON.stringify(updatedUser));
+          console.log("User after verify_premium sync:", updatedUser);
+        }
+      } catch (e) {
+        console.log("Error syncing premium from backend:", e);
+      }
+    }
+
+    syncPremiumFromBackend();
+  }, [user?.id]);
+
+  // -------------------------------------------
+  // Real-time subscription refresh listener
+  // -------------------------------------------
+  useEffect(() => {
+    const listener = Purchases.addCustomerInfoUpdateListener(async (info) => {
+      console.log("🔄 RevenueCat customer updated:", info);
+      setCustomerInfo(info);
+
+      if (user?.id) {
+        try {
+          const res = await fetch(`${API_URL}/users/${user.id}`);
+          if (res.ok) {
+            const updated = await res.json();
+            setUser(updated);
+            //await AsyncStorage.setItem("user", JSON.stringify(updated));
+            console.log("🔥 User refreshed after purchase", updated);
+          }
+        } catch (err) {
+          console.log("❌ Could not refresh user after purchase", err);
+        }
+      }
+    });
+
+    return () => {
+      Purchases.removeCustomerInfoUpdateListener(listener);
+    };
+  }, [user]);
+
+  // -------------------------------------------
+  // Purchase handler
+  // -------------------------------------------
+  async function purchasePackage(pkg) {
+    try {
+      const result = await Purchases.purchasePackage(pkg);
+      console.log("🎉 Purchase success:", result);
+      Alert.alert("Success!", "Your Premium subscription is now active.");
+    } catch (err: any) {
+      if (err.userCancelled) return;
+      console.log("❌ Purchase error:", err);
+      Alert.alert("Purchase Failed", err.message || "Unknown error occurred.");
+    }
+  }
+
+  // -------------------------------------------
+  // Save profile
+  // -------------------------------------------
   const handleSave = async () => {
     if (!firstName || !lastName || !email) {
       Alert.alert("Missing info", "Please fill all required fields.");
@@ -136,31 +279,17 @@ export default function SettingsScreen() {
       const updated = await res.json();
 
       if (res.ok) {
-        Alert.alert("✅ Profile Updated", "Your changes have been saved.");
+        Alert.alert("Profile Updated", "Your changes have been saved.");
         await AsyncStorage.setItem("user", JSON.stringify(updated));
         setUser(updated);
         setEditing(false);
       } else {
         Alert.alert("Error", updated.detail || "Could not update profile.");
       }
-    } catch (error) {
-      console.error("Update error:", error);
+    } catch (err) {
+      console.error(err);
       Alert.alert("Network error", "Please try again later.");
     }
-  };
-
-  const handleLogout = async () => {
-    Alert.alert("Log Out", "Are you sure you want to log out?", [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Log Out",
-        style: "destructive",
-        onPress: async () => {
-          await AsyncStorage.removeItem("user");
-          router.replace("/auth");
-        },
-      },
-    ]);
   };
 
   if (loading) {
@@ -173,14 +302,16 @@ export default function SettingsScreen() {
     );
   }
 
+  // Backend premium status
   const isPremium = user?.is_premium;
+  console.log("isPremium (backend):", isPremium);
 
   return (
     <SafeAreaView style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.scrollContainer}>
         <Text style={styles.title}>⚙️ Settings</Text>
 
-        {/* 💳 Subscription */}
+        {/* SUBSCRIPTION CARD */}
         <View style={styles.card}>
           <Text style={styles.sectionTitle}>💳 Your Plan</Text>
 
@@ -201,11 +332,10 @@ export default function SettingsScreen() {
 
             {!isPremium && (
               <View style={{ width: "100%", marginTop: 10 }}>
-                <Text style={{ color: "#d1d5db", marginBottom: 6, fontSize: 14 }}>
+                <Text style={{ color: "#d1d5db", marginBottom: 6 }}>
                   Scans this month
                 </Text>
 
-                {/* Background Bar */}
                 <View
                   style={{
                     width: "100%",
@@ -215,72 +345,136 @@ export default function SettingsScreen() {
                     overflow: "hidden",
                   }}
                 >
-                  {/* Filled Portion */}
                   <View
                     style={{
-                      width: `${Math.min((user.scan_count || 0) / 5 * 100, 100)}%`,
+                      width: `${Math.min(
+                        ((user.scan_count || 0) / 5) * 100,
+                        100
+                      )}%`,
                       height: "100%",
                       backgroundColor:
-                        (user.scan_count || 0) >= 5
-                          ? "#dc2626" // red when close to limit
-                          : "#16a34a", // green otherwise
+                        (user.scan_count || 0) >= 5 ? "#dc2626" : "#16a34a",
                     }}
                   />
                 </View>
-
-                <Text
-                  style={{
-                    color: "#9ca3af",
-                    marginTop: 6,
-                    fontSize: 13,
-                    textAlign: "right",
-                  }}
-                >
-                  {(user.scan_count || 0)} / 5
-                </Text>
               </View>
             )}
           </View>
 
-          {/* ✅ Feature Comparison */}
-          <View style={styles.featuresContainer}>
-            <View style={styles.featuresColumn}>
-              <Text style={styles.featuresHeader}>Free Plan</Text>
-              <Text style={styles.bullet}>• 5 scans per month</Text>
-              <Text style={styles.bullet}>• Weight, BMI, Fat% Metrics</Text>
-              <Text style={styles.bullet}>• Weight & BMI Goals</Text>
-            </View>
-            <View style={styles.divider} />
-            <View style={styles.featuresColumn}>
-              <Text style={[styles.featuresHeader, { color: "#16a34a" }]}>
-                Premium Plan
-              </Text>
-              <Text style={styles.bullet}>• Unlimited Scans</Text>
-              <Text style={styles.bullet}>• All Metrics</Text>
-              <Text style={styles.bullet}>• Downloadable Data</Text>
-              <Text style={styles.bullet}>• Goals for all metrics</Text>
-            </View>
-          </View>
-
-          {/* 🪙 Pricing + Upgrade */}
+          {/* PRICING OPTIONS */}
           {!isPremium && (
-            <View style={{ alignItems: "center", marginTop: 20 }}>
-              <Text style={styles.priceText}>$2.99 / month</Text>
-              <Text style={styles.subPriceText}>or $15.99 / year</Text>
-
-              <TouchableOpacity
-                onPress={() => Alert.alert("Upgrade", "Redirecting to payment...")}
-                style={[styles.button, { backgroundColor: "#fff", marginTop: 12 }]}
-              >
-                <Text style={[styles.buttonText, { color: "#000" }]}>
-                  Upgrade to Premium
+            <View style={{ marginTop: 24, width: "100%" }}>
+              {rcLoading && (
+                <Text style={{ color: "#9ca3af", textAlign: "center" }}>
+                  Loading prices…
                 </Text>
-              </TouchableOpacity>
+              )}
+
+              {/* Show ALL packages ONLY if user is not premium */}
+              {offerings?.availablePackages?.map((pkg) => {
+                const p = pkg.product;
+                const isMonthly = pkg.packageType === "MONTHLY";
+                const isAnnual = pkg.packageType === "ANNUAL";
+
+                return (
+                  <TouchableOpacity
+                    key={pkg.identifier}
+                    onPress={() => purchasePackage(pkg)}
+                    style={{
+                      backgroundColor: "#1f1f1f",
+                      borderColor: "#3f3f3f",
+                      borderWidth: 1.5,
+                      padding: 18,
+                      borderRadius: 14,
+                      marginBottom: 20,
+                    }}
+                  >
+                    {isAnnual && (
+                      <View
+                        style={{
+                          position: "absolute",
+                          top: -10,
+                          right: -10,
+                          backgroundColor: "#16a34a",
+                          paddingHorizontal: 10,
+                          paddingVertical: 4,
+                          borderRadius: 8,
+                        }}
+                      >
+                        <Text
+                          style={{
+                            color: "#fff",
+                            fontSize: 11,
+                            fontWeight: "700",
+                          }}
+                        >
+                          BEST VALUE
+                        </Text>
+                      </View>
+                    )}
+
+                    <Text
+                      style={{
+                        fontSize: 18,
+                        fontWeight: "700",
+                        color: "#fff",
+                        marginBottom: 4,
+                      }}
+                    >
+                      {isMonthly ? "Monthly Premium" : "Yearly Premium"}
+                    </Text>
+
+                    <Text
+                      style={{
+                        fontSize: 16,
+                        color: "#d1d5db",
+                        marginBottom: 8,
+                      }}
+                    >
+                      {p.priceString} {isMonthly ? "/ month" : "/ year"}
+                    </Text>
+
+                    <View style={{ marginBottom: 12 }}>
+                      <Text style={styles.bullet}>• Unlimited Scans</Text>
+                      <Text style={styles.bullet}>• All Body Metrics</Text>
+                      <Text style={styles.bullet}>• CSV Data Downloads</Text>
+                      <Text style={styles.bullet}>• Goals & Insights</Text>
+                      {isAnnual && (
+                        <Text style={[styles.bullet, { color: "#16a34a" }]}>
+                          • Save 50% compared to monthly
+                        </Text>
+                      )}
+                    </View>
+
+                    <View
+                      style={{
+                        marginTop: 4,
+                        backgroundColor: "#fff",
+                        paddingVertical: 10,
+                        borderRadius: 8,
+                        alignItems: "center",
+                      }}
+                    >
+                      <Text
+                        style={{
+                          color: "#000",
+                          fontSize: 16,
+                          fontWeight: "600",
+                        }}
+                      >
+                        {isMonthly
+                          ? "Choose Monthly Plan"
+                          : "Choose Yearly Plan"}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
             </View>
           )}
         </View>
 
-        {/* 👤 Profile */}
+        {/* PROFILE INFO */}
         <View style={styles.card}>
           <Text style={styles.sectionTitle}>👤 Profile Info</Text>
 
@@ -292,6 +486,7 @@ export default function SettingsScreen() {
             placeholderTextColor="#9ca3af"
             style={styles.input}
           />
+
           <TextInput
             value={lastName}
             onChangeText={setLastName}
@@ -300,34 +495,37 @@ export default function SettingsScreen() {
             placeholderTextColor="#9ca3af"
             style={styles.input}
           />
+
           <TextInput
             value={email}
             onChangeText={setEmail}
             editable={editing}
             placeholder="Email"
             placeholderTextColor="#9ca3af"
-            style={styles.input}
             autoCapitalize="none"
             keyboardType="email-address"
+            style={styles.input}
           />
+
           <TextInput
             value={password}
             onChangeText={setPassword}
             editable={editing}
             placeholder="Password"
             placeholderTextColor="#9ca3af"
-            style={styles.input}
-            autoCapitalize="none"
             secureTextEntry={true}
+            autoCapitalize="none"
+            style={styles.input}
           />
+
           <TextInput
             value={height}
             onChangeText={setHeight}
             editable={editing}
             placeholder="Height (inches)"
             placeholderTextColor="#9ca3af"
-            style={styles.input}
             keyboardType="numeric"
+            style={styles.input}
           />
 
           {!editing ? (
@@ -342,39 +540,40 @@ export default function SettingsScreen() {
           ) : (
             <TouchableOpacity
               onPress={handleSave}
-              style={[styles.button, { backgroundColor: "#16a34a", marginTop: 20 }]}
+              style={[
+                styles.button,
+                { backgroundColor: "#16a34a", marginTop: 20 },
+              ]}
             >
               <Text style={styles.buttonText}>Save Changes</Text>
             </TouchableOpacity>
           )}
         </View>
 
-        {/* Donwloadable data*/}
+        {/* PREMIUM DATA DOWNLOAD */}
         {isPremium && (
           <View style={styles.card}>
             <Text style={styles.sectionTitle}>📥 Download Your Data</Text>
 
-            {/* Tap to open year picker */}
             <TouchableOpacity
               onPress={() => setYearPickerVisible(true)}
               style={styles.input}
             >
-              <Text style={{ color: "#fff", fontSize: 16 }}>{selectedYear}</Text>
+              <Text style={{ color: "#fff", fontSize: 16 }}>
+                {selectedYear}
+              </Text>
             </TouchableOpacity>
 
-            {/* Modal Year Picker */}
             <DateTimePickerModal
               isVisible={isYearPickerVisible}
               mode="date"
               date={new Date(parseInt(selectedYear), 0, 1)}
               onConfirm={(date) => {
-                setYearPickerVisible(false);
                 setSelectedYear(date.getFullYear().toString());
+                setYearPickerVisible(false);
               }}
               onCancel={() => setYearPickerVisible(false)}
-              maximumDate={new Date()} // cannot pick future years
-              minimumDate={new Date(new Date().getFullYear() - 10, 0, 1)} // last 10 years
-              display="spinner" // shows a spinner instead of calendar
+              display="spinner"
             />
 
             <TouchableOpacity
@@ -389,23 +588,28 @@ export default function SettingsScreen() {
           </View>
         )}
 
-
-        {/* 💬 Contact Support */}
+        {/* CONTACT */}
         <TouchableOpacity
           onPress={() => router.push("/contact")}
           style={[styles.button, { backgroundColor: "#fff" }]}
         >
-          <Text style={[styles.buttonText, { color: "#000" }]}>Contact Support</Text>
+          <Text style={[styles.buttonText, { color: "#000" }]}>
+            Contact Support
+          </Text>
         </TouchableOpacity>
 
-        {/* 🚪 Logout */}
+        {/* LOG OUT */}
         <TouchableOpacity
-          onPress={handleLogout}
+          onPress={async () => {
+            await AsyncStorage.removeItem("user");
+            router.replace("/auth");
+          }}
           style={[styles.button, { backgroundColor: "#fff" }]}
         >
-          <Text style={[styles.buttonText, { color: "#000" }]}>Log Out</Text>
+          <Text style={[styles.buttonText, { color: "#000" }]}>
+            Log Out
+          </Text>
         </TouchableOpacity>
-      
       </ScrollView>
     </SafeAreaView>
   );
@@ -426,7 +630,6 @@ const styles = {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#1f1f1f",
   },
   title: {
     fontSize: 22,
@@ -458,40 +661,6 @@ const styles = {
     fontSize: 17,
     fontWeight: "700",
   },
-  usage: {
-    fontSize: 15,
-    color: "#d1d5db",
-    marginTop: 6,
-  },
-  priceText: {
-    color: "#fff",
-    fontWeight: "700",
-    fontSize: 18,
-  },
-  subPriceText: {
-    color: "#9ca3af",
-    fontSize: 14,
-    marginTop: 4,
-  },
-  featuresContainer: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginTop: 4,
-  },
-  featuresColumn: {
-    flex: 1,
-    paddingHorizontal: 6,
-  },
-  featuresHeader: {
-    fontSize: 16,
-    fontWeight: "600",
-    marginBottom: 6,
-    color: "#fff",
-  },
-  divider: {
-    width: 1,
-    backgroundColor: "#3f3f3f",
-  },
   bullet: {
     fontSize: 14,
     color: "#d1d5db",
@@ -517,7 +686,7 @@ const styles = {
   },
   buttonText: {
     fontWeight: "600",
-    color: "#fff",
+    color: "#000",
     fontSize: 16,
   },
 };

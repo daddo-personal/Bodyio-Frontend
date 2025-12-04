@@ -1,19 +1,19 @@
-import React, { useState, useEffect } from "react";
-import {
-  View,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  ScrollView,
-  StyleSheet,
-  Alert,
-  Modal,
-  FlatList,
-} from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Constants from "expo-constants";
 import { useRouter } from "expo-router";
-import { Ionicons } from "@expo/vector-icons";
+import React, { useEffect, useState } from "react";
+import {
+  Alert,
+  FlatList,
+  Modal,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from "react-native";
 import DateTimePickerModal from "react-native-modal-datetime-picker";
 
 const API_URL = Constants.expoConfig.extra.apiUrl;
@@ -59,6 +59,34 @@ export default function GoalsScreen() {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [isPickerVisible, setPickerVisible] = useState(false);
 
+
+  useEffect(() => {
+    async function verifyPremium() {
+      if (!userId) return;
+      try {
+        const res = await fetch(`${API_URL}/users/${userId}/verify_premium`);
+        if (!res.ok) return;
+
+        const verifyData = await res.json();
+        console.log("User id in dasboard is: ", userId)
+        console.log("Dashboard verify_premium:", verifyData);
+
+        // Now refetch user and update local storage
+        const userRes = await fetch(`${API_URL}/users/${userId}`);
+        if (userRes.ok) {
+          const updated = await userRes.json();
+          setIsPremium(updated.is_premium);
+          await AsyncStorage.setItem("user", JSON.stringify(updated));
+        }
+      } catch (err) {
+        console.log("Premium verify failed:", err);
+      }
+    };
+
+    verifyPremium();
+  }, [userId]);
+
+
   // -----------------------------
   // Load user
   // -----------------------------
@@ -86,7 +114,7 @@ export default function GoalsScreen() {
       const res = await fetch(`${API_URL}/goals/${userId}`);
       const data = await res.json();
       setGoals(data);
-    } catch (err) {}
+    } catch (err) { }
   };
 
   // -----------------------------
@@ -142,7 +170,7 @@ export default function GoalsScreen() {
       Alert.alert("Success", "Goal updated");
       setModalVisible(false);
       fetchGoals();
-    } catch (err) {}
+    } catch (err) { }
   };
 
   const handleCreateGoal = async () => {
@@ -166,7 +194,7 @@ export default function GoalsScreen() {
       Alert.alert("Success", "Goal created");
       setModalVisible(false);
       fetchGoals();
-    } catch (err) {}
+    } catch (err) { }
   };
 
   // -----------------------------
@@ -187,7 +215,7 @@ export default function GoalsScreen() {
             Alert.alert("Deleted");
             setModalVisible(false);
             fetchGoals();
-          } catch {}
+          } catch { }
         },
       },
     ]);
@@ -278,7 +306,7 @@ export default function GoalsScreen() {
                         style={[
                           styles.metricChip,
                           editingGoal?.metric === item.key &&
-                            styles.metricChipActive,
+                          styles.metricChipActive,
                           disabled && styles.metricChipDisabled,
                         ]}
                         onPress={() =>
@@ -289,7 +317,7 @@ export default function GoalsScreen() {
                           style={[
                             styles.metricChipText,
                             editingGoal?.metric === item.key &&
-                              styles.metricChipTextActive,
+                            styles.metricChipTextActive,
                           ]}
                         >
                           {item.label}
