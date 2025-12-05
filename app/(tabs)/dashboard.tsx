@@ -358,10 +358,10 @@ export default function DashboardScreen() {
                           />
                         ))}
                         {/* Invisible text for layout */}
-                        <Text style={[styles.metricTileValue, { opacity: 0 }]}>{m.type === "percent" ? `${(value * 100).toFixed(1)}%` : value.toFixed(1)}</Text>
+                        <Text style={[styles.metricTileValue, { opacity: 0 }]}>{m.type === "percent" ? `${value.toFixed(1)}%` : value.toFixed(1)}</Text>
                       </View>
                     ) : (
-                      <Text style={styles.metricTileValue}>{m.type === "percent" ? `${(value * 100).toFixed(1)}%` : value.toFixed(1)}</Text>
+                      <Text style={styles.metricTileValue}>{m.type === "percent" ? `${value.toFixed(1)}%` : value.toFixed(1)}</Text>
                     )}
 
 

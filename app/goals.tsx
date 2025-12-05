@@ -27,23 +27,10 @@ const METRICS = [
   { key: "fat_mass", label: "Fat Mass" },
 ];
 
-// ⭐ FINAL FIX — NEVER EVER returns 1969
-function parseGoalDate(raw: string): Date {
-  if (!raw) return new Date();
-
-  try {
-    const datePart = raw.split("T")[0]; // "2026-03-16"
-    const [year, month, day] = datePart.split("-").map(Number);
-
-    if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) {
-      return new Date();
-    }
-
-    // ⭐ Use Date.UTC — safest possible method
-    return new Date(Date.UTC(year, month - 1, day));
-  } catch {
-    return new Date();
-  }
+// Converts date string "2025-12-31" into readable format
+function formatDisplayDate(ymd: string) {
+  const [y, m, d] = ymd.split("-");
+  return new Date(`${y}-${m}-${d}T00:00:00`).toDateString();
 }
 
 export default function GoalsScreen() {
@@ -56,36 +43,15 @@ export default function GoalsScreen() {
   const [modalVisible, setModalVisible] = useState(false);
   const [editingGoal, setEditingGoal] = useState<any | null>(null);
   const [targetValue, setTargetValue] = useState<string>("");
-  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+
+  // ⭐ Store date as pure YYYY-MM-DD (NEVER as a Date object)
+  const [selectedDate, setSelectedDate] = useState<{ year: string; month: string; day: string }>({
+    year: "2025",
+    month: "01",
+    day: "01",
+  });
+
   const [isPickerVisible, setPickerVisible] = useState(false);
-
-
-  useEffect(() => {
-    async function verifyPremium() {
-      if (!userId) return;
-      try {
-        const res = await fetch(`${API_URL}/users/${userId}/verify_premium`);
-        if (!res.ok) return;
-
-        const verifyData = await res.json();
-        console.log("User id in dasboard is: ", userId)
-        console.log("Dashboard verify_premium:", verifyData);
-
-        // Now refetch user and update local storage
-        const userRes = await fetch(`${API_URL}/users/${userId}`);
-        if (userRes.ok) {
-          const updated = await userRes.json();
-          setIsPremium(updated.is_premium);
-          await AsyncStorage.setItem("user", JSON.stringify(updated));
-        }
-      } catch (err) {
-        console.log("Premium verify failed:", err);
-      }
-    };
-
-    verifyPremium();
-  }, [userId]);
-
 
   // -----------------------------
   // Load user
@@ -114,73 +80,54 @@ export default function GoalsScreen() {
       const res = await fetch(`${API_URL}/goals/${userId}`);
       const data = await res.json();
       setGoals(data);
-    } catch (err) { }
+    } catch {}
   };
 
   // -----------------------------
-  // Open Create Modal
-  // -----------------------------
-  const openCreateModal = () => {
-    setEditingGoal({ metric: METRICS[0].key });
-    setTargetValue("");
-    setSelectedDate(new Date());
-    setModalVisible(true);
-  };
-
-  // -----------------------------
-  // Open Edit Modal
-  // -----------------------------
-  const openEditModal = (goal: any) => {
-    const safeDate = parseGoalDate(goal.target_date); // ⭐ Perfectly safe
-    setEditingGoal(goal);
-    setTargetValue(goal.target_value.toString());
-    setSelectedDate(safeDate);
-    setModalVisible(true);
-  };
-
-  // -----------------------------
-  // Date picker confirm
+  // Date Picker
   // -----------------------------
   const handleConfirmDate = (date: Date) => {
-    setSelectedDate(date);
+    // ⭐ EXTRACT ONLY THE DATE — THROW AWAY THE JS Date object
+    const year = date.getFullYear().toString();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+
+    setSelectedDate({ year, month, day });
     setPickerVisible(false);
   };
 
-  // -----------------------------
-  // Create or save goal
-  // -----------------------------
-  const handleSaveGoal = async () => {
-    if (!targetValue) return Alert.alert("Missing field", "Enter a value.");
-
-    const payload = {
-      user_id: userId,
-      metric: editingGoal.metric,
-      target_value: parseFloat(targetValue),
-      target_date: selectedDate.toISOString(),
-    };
-
-    try {
-      const res = await fetch(`${API_URL}/goals/${editingGoal.id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-
-      if (!res.ok) throw new Error();
-      Alert.alert("Success", "Goal updated");
-      setModalVisible(false);
-      fetchGoals();
-    } catch (err) { }
+  const openCreateModal = () => {
+    setEditingGoal({ metric: METRICS[0].key });
+    setTargetValue("");
+    setSelectedDate({
+      year: String(new Date().getFullYear()),
+      month: String(new Date().getMonth() + 1).padStart(2, "0"),
+      day: String(new Date().getDate()).padStart(2, "0"),
+    });
+    setModalVisible(true);
   };
 
+  const openEditModal = (goal: any) => {
+    const [y, m, d] = goal.target_date.split("-");
+    setEditingGoal(goal);
+    setTargetValue(String(goal.target_value));
+    setSelectedDate({ year: y, month: m, day: d });
+    setModalVisible(true);
+  };
+
+  // -----------------------------
+  // CREATE GOAL
+  // -----------------------------
   const handleCreateGoal = async () => {
     if (!targetValue) return Alert.alert("Missing field", "Enter a value.");
 
+    const ymd = `${selectedDate.year}-${selectedDate.month}-${selectedDate.day}`;
+
     const payload = {
       user_id: userId,
       metric: editingGoal.metric,
       target_value: parseFloat(targetValue),
-      target_date: selectedDate.toISOString(),
+      target_date: ymd, // ⭐ EXACT DATE STRING — NO TIMEZONE EVER
     };
 
     try {
@@ -194,11 +141,40 @@ export default function GoalsScreen() {
       Alert.alert("Success", "Goal created");
       setModalVisible(false);
       fetchGoals();
-    } catch (err) { }
+    } catch {}
   };
 
   // -----------------------------
-  // Delete goal
+  // SAVE EDITED GOAL
+  // -----------------------------
+  const handleSaveGoal = async () => {
+    if (!targetValue) return Alert.alert("Missing field", "Enter a value.");
+
+    const ymd = `${selectedDate.year}-${selectedDate.month}-${selectedDate.day}`;
+
+    const payload = {
+      user_id: userId,
+      metric: editingGoal.metric,
+      target_value: parseFloat(targetValue),
+      target_date: ymd,
+    };
+
+    try {
+      const res = await fetch(`${API_URL}/goals/${editingGoal.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) throw new Error();
+      Alert.alert("Success", "Goal updated");
+      setModalVisible(false);
+      fetchGoals();
+    } catch {}
+  };
+
+  // -----------------------------
+  // DELETE GOAL
   // -----------------------------
   const handleDeleteGoal = async (goalId: string) => {
     Alert.alert("Confirm delete", "Are you sure?", [
@@ -208,14 +184,11 @@ export default function GoalsScreen() {
         style: "destructive",
         onPress: async () => {
           try {
-            const res = await fetch(`${API_URL}/goals/${goalId}`, {
-              method: "DELETE",
-            });
-            if (!res.ok) throw new Error();
+            await fetch(`${API_URL}/goals/${goalId}`, { method: "DELETE" });
             Alert.alert("Deleted");
             setModalVisible(false);
             fetchGoals();
-          } catch { }
+          } catch {}
         },
       },
     ]);
@@ -223,14 +196,12 @@ export default function GoalsScreen() {
 
   return (
     <ScrollView contentContainerStyle={{ padding: 16 }}>
-      {/* Back Button */}
       <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
         <Ionicons name="chevron-back" size={28} color="#fff" />
       </TouchableOpacity>
 
       <Text style={styles.title}>🎯 Your Goals</Text>
 
-      {/* GOALS LIST */}
       {goals.length === 0 ? (
         <View style={{ alignItems: "center", marginTop: 20 }}>
           <Text style={{ color: "#fff", marginBottom: 12 }}>
@@ -244,44 +215,36 @@ export default function GoalsScreen() {
         </View>
       ) : (
         <>
-          {goals.map((g) => {
-            const safe = parseGoalDate(g.target_date);
-            return (
-              <TouchableOpacity
-                key={g.id}
-                style={styles.goalCard}
-                onPress={() => openEditModal(g)}
-              >
-                <View style={styles.goalHeader}>
-                  <Text style={styles.goalMetric}>
-                    {METRICS.find((m) => m.key === g.metric)?.label}
-                  </Text>
-                  <Text style={styles.goalDate}>{safe.toDateString()}</Text>
-                </View>
-
-                <Text style={styles.goalTargetLabel}>Target</Text>
-                <Text style={styles.goalTargetValue}>
-                  {g.target_value}
-                  {g.metric.includes("percent") ? "%" : ""}
+          {goals.map((g) => (
+            <TouchableOpacity
+              key={g.id}
+              style={styles.goalCard}
+              onPress={() => openEditModal(g)}
+            >
+              <View style={styles.goalHeader}>
+                <Text style={styles.goalMetric}>
+                  {METRICS.find((m) => m.key === g.metric)?.label}
                 </Text>
-              </TouchableOpacity>
-            );
-          })}
+                <Text style={styles.goalDate}>
+                  {formatDisplayDate(g.target_date)}
+                </Text>
+              </View>
+
+              <Text style={styles.goalTargetLabel}>Target</Text>
+              <Text style={styles.goalTargetValue}>{g.target_value}</Text>
+            </TouchableOpacity>
+          ))}
 
           <TouchableOpacity
             style={[styles.saveButton, { marginTop: 16 }]}
             onPress={openCreateModal}
           >
-            <Text style={{ fontWeight: "600", color: "#000" }}>
-              Add Another Goal
-            </Text>
+            <Text style={{ fontWeight: "600", color: "#000" }}>Add Another Goal</Text>
           </TouchableOpacity>
         </>
       )}
 
-      {/* --------------------------- */}
       {/* MODAL */}
-      {/* --------------------------- */}
       <Modal transparent visible={modalVisible} animationType="fade">
         <View style={styles.modalBackdrop}>
           <View style={styles.modalCard}>
@@ -289,7 +252,7 @@ export default function GoalsScreen() {
               {editingGoal?.id ? "Edit Goal" : "Create Goal"}
             </Text>
 
-            {/* Metric Selector */}
+            {/* Metric selector (create only) */}
             {!editingGoal?.id && (
               <>
                 <Text style={styles.modalLabel}>Select Metric</Text>
@@ -300,13 +263,14 @@ export default function GoalsScreen() {
                   renderItem={({ item }) => {
                     const disabled =
                       !isPremium && !["weight", "bmi"].includes(item.key);
+
                     return (
                       <TouchableOpacity
                         disabled={disabled}
                         style={[
                           styles.metricChip,
                           editingGoal?.metric === item.key &&
-                          styles.metricChipActive,
+                            styles.metricChipActive,
                           disabled && styles.metricChipDisabled,
                         ]}
                         onPress={() =>
@@ -317,7 +281,7 @@ export default function GoalsScreen() {
                           style={[
                             styles.metricChipText,
                             editingGoal?.metric === item.key &&
-                            styles.metricChipTextActive,
+                              styles.metricChipTextActive,
                           ]}
                         >
                           {item.label}
@@ -342,19 +306,19 @@ export default function GoalsScreen() {
 
             {/* Date */}
             <Text style={styles.modalLabel}>Target Date</Text>
+
             <TouchableOpacity
               style={styles.datePickerButton}
               onPress={() => setPickerVisible(true)}
             >
               <Text style={styles.datePickerText}>
-                {selectedDate.toDateString()}
+                {`${selectedDate.year}-${selectedDate.month}-${selectedDate.day}`}
               </Text>
             </TouchableOpacity>
 
             <DateTimePickerModal
               isVisible={isPickerVisible}
               mode="date"
-              date={selectedDate}
               onConfirm={handleConfirmDate}
               onCancel={() => setPickerVisible(false)}
             />

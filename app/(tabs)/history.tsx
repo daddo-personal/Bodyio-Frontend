@@ -145,12 +145,12 @@ export default function MetricsHistory() {
                           />
                         ))}
                         <Text style={[styles.metricTileValue, { opacity: 0 }]}>
-                          {metric.type === "percent" ? `${(value*100).toFixed(1)}%` : value.toFixed(1)}
+                          {metric.type === "percent" ? `${value.toFixed(1)}%` : value.toFixed(1)}
                         </Text>
                       </View>
                     ) : (
                       <Text style={styles.metricTileValue}>
-                        {metric.type === "percent" ? `${(value*100).toFixed(1)}%` : value.toFixed(1)}
+                        {metric.type === "percent" ? `${value.toFixed(1)}%` : value.toFixed(1)}
                       </Text>
                     )}
                   </View>
