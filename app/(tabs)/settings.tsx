@@ -106,48 +106,48 @@ export default function SettingsScreen() {
   );
 
 
-const handleDownloadData = async () => {
-  if (!user) return;
-  setDownloading(true);
+  const handleDownloadData = async () => {
+    if (!user) return;
+    setDownloading(true);
 
-  try {
-    console.log("Selected year is", selectedYear);
+    try {
+      console.log("Selected year is", selectedYear);
 
-    // 1. Fetch CSV from backend
-    const res = await fetch(
-      `${API_URL}/metrics_download?user_id=${user.id}&year=${selectedYear}`
-    );
+      // 1. Fetch CSV from backend
+      const res = await fetch(
+        `${API_URL}/metrics_download?user_id=${user.id}&year=${selectedYear}`
+      );
 
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      Alert.alert(err.detail || "Failed to download data.");
-      return;
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        Alert.alert(err.detail || "Failed to download data.");
+        return;
+      }
+
+      // 2. Get raw CSV text
+      const csvText = await res.text();   // <-- THIS FIXES IT
+
+      // 3. Save CSV locally
+      const fileUri = `${FileSystem.documentDirectory}metrics_${selectedYear}.csv`;
+
+      await FileSystem.writeAsStringAsync(fileUri, csvText, {
+        encoding: FileSystem.EncodingType.UTF8,
+      });
+
+      // 4. Share CSV
+      await Sharing.shareAsync(fileUri, {
+        mimeType: "text/csv",
+        dialogTitle: `Your Metrics Data (${selectedYear})`,
+        UTI: "public.comma-separated-values-text",
+      });
+
+    } catch (err) {
+      console.error("CSV download error:", err);
+      Alert.alert("Error", "Failed to download your data.");
+    } finally {
+      setDownloading(false);
     }
-
-    // 2. Get raw CSV text
-    const csvText = await res.text();   // <-- THIS FIXES IT
-
-    // 3. Save CSV locally
-    const fileUri = `${FileSystem.documentDirectory}metrics_${selectedYear}.csv`;
-
-    await FileSystem.writeAsStringAsync(fileUri, csvText, {
-      encoding: FileSystem.EncodingType.UTF8,
-    });
-
-    // 4. Share CSV
-    await Sharing.shareAsync(fileUri, {
-      mimeType: "text/csv",
-      dialogTitle: `Your Metrics Data (${selectedYear})`,
-      UTI: "public.comma-separated-values-text",
-    });
-
-  } catch (err) {
-    console.error("CSV download error:", err);
-    Alert.alert("Error", "Failed to download your data.");
-  } finally {
-    setDownloading(false);
-  }
-};
+  };
 
   // -------------------------------------------
   // Ensure RevenueCat appUserID matches backend user.id
@@ -374,13 +374,28 @@ const handleDownloadData = async () => {
           {/* PRICING OPTIONS */}
           {!isPremium && (
             <View style={{ marginTop: 24, width: "100%" }}>
-              {rcLoading && (
-                <Text style={{ color: "#9ca3af", textAlign: "center" }}>
-                  Loading prices…
-                </Text>
-              )}
 
-              {/* Show ALL packages ONLY if user is not premium */}
+              {/* Shared features list */}
+              <View
+                style={{
+                  backgroundColor: "#1f1f1f",
+                  padding: 16,
+                  borderRadius: 12,
+                  borderWidth: 1,
+                  borderColor: "#3f3f3f",
+                  marginBottom: 20,
+                }}
+              >
+                <Text style={{ color: "#fff", fontSize: 16, fontWeight: "700", marginBottom: 10 }}>
+                  Premium Features
+                </Text>
+
+                <Text style={styles.bullet}>• Unlimited Scans</Text>
+                <Text style={styles.bullet}>• All Body Metrics</Text>
+                <Text style={styles.bullet}>• CSV Data Downloads</Text>
+                <Text style={styles.bullet}>• Goals & Insights for all metrics</Text>
+              </View>
+
               {offerings?.availablePackages?.map((pkg) => {
                 const p = pkg.product;
                 const isMonthly = pkg.packageType === "MONTHLY";
@@ -391,20 +406,21 @@ const handleDownloadData = async () => {
                     key={pkg.identifier}
                     onPress={() => purchasePackage(pkg)}
                     style={{
-                      backgroundColor: "#1f1f1f",
-                      borderColor: "#3f3f3f",
+                      backgroundColor: isAnnual ? "#252c1f" : "#1f1f1f",
+                      borderColor: isAnnual ? "#16a34a" : "#3f3f3f",
                       borderWidth: 1.5,
                       padding: 18,
                       borderRadius: 14,
                       marginBottom: 20,
                     }}
                   >
+                    {/* BEST VALUE badge */}
                     {isAnnual && (
                       <View
                         style={{
                           position: "absolute",
-                          top: -10,
-                          right: -10,
+                          top: -12,
+                          right: -12,
                           backgroundColor: "#16a34a",
                           paddingHorizontal: 10,
                           paddingVertical: 4,
@@ -423,6 +439,7 @@ const handleDownloadData = async () => {
                       </View>
                     )}
 
+                    {/* Title */}
                     <Text
                       style={{
                         fontSize: 18,
@@ -434,33 +451,37 @@ const handleDownloadData = async () => {
                       {isMonthly ? "Monthly Premium" : "Yearly Premium"}
                     </Text>
 
+                    {/* Price */}
                     <Text
                       style={{
                         fontSize: 16,
                         color: "#d1d5db",
-                        marginBottom: 8,
+                        marginBottom: 12,
                       }}
                     >
                       {p.priceString} {isMonthly ? "/ month" : "/ year"}
                     </Text>
 
-                    <View style={{ marginBottom: 12 }}>
-                      <Text style={styles.bullet}>• Unlimited Scans</Text>
-                      <Text style={styles.bullet}>• All Body Metrics</Text>
-                      <Text style={styles.bullet}>• CSV Data Downloads</Text>
-                      <Text style={styles.bullet}>• Goals & Insights</Text>
-                      {isAnnual && (
-                        <Text style={[styles.bullet, { color: "#16a34a" }]}>
-                          • Save 50% compared to monthly
-                        </Text>
-                      )}
-                    </View>
+                    {/* Extra yearly savings text */}
+                    {isAnnual && (
+                      <Text
+                        style={{
+                          color: "#16a34a",
+                          marginBottom: 12,
+                          fontSize: 14,
+                          fontWeight: "600",
+                        }}
+                      >
+                        Save 50% compared to monthly
+                      </Text>
+                    )}
 
+                    {/* Button */}
                     <View
                       style={{
                         marginTop: 4,
                         backgroundColor: "#fff",
-                        paddingVertical: 10,
+                        paddingVertical: 12,
                         borderRadius: 8,
                         alignItems: "center",
                       }}
@@ -472,9 +493,7 @@ const handleDownloadData = async () => {
                           fontWeight: "600",
                         }}
                       >
-                        {isMonthly
-                          ? "Choose Monthly Plan"
-                          : "Choose Yearly Plan"}
+                        {isMonthly ? "Choose Monthly Plan" : "Choose Yearly Plan"}
                       </Text>
                     </View>
                   </TouchableOpacity>
@@ -482,6 +501,7 @@ const handleDownloadData = async () => {
               })}
             </View>
           )}
+
         </View>
 
         {/* PROFILE INFO */}
