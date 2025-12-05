@@ -352,11 +352,21 @@ const handleDownloadData = async () => {
                         100
                       )}%`,
                       height: "100%",
-                      backgroundColor:
-                        (user.scan_count || 0) >= 5 ? "#dc2626" : "#16a34a",
+                      backgroundColor: "#16a34a",
                     }}
                   />
                 </View>
+
+                <Text
+                  style={{
+                    color: "#9ca3af",
+                    marginTop: 6,
+                    fontSize: 13,
+                    textAlign: "right",
+                  }}
+                >
+                  {(user.scan_count || 0)} / 5
+                </Text>
               </View>
             )}
           </View>
