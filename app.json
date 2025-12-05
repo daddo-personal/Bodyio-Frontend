@@ -5,7 +5,7 @@
     "owner": "daddo0823",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/images/BodyIO.png",
     "scheme": "frontend",
     "userInterfaceStyle": "automatic",
     "sdkVersion": "54.0.0",
