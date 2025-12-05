@@ -124,13 +124,36 @@ export default function UserInfo() {
         </View>
 
         <Text style={styles.label}>Ethnicity</Text>
-        <TextInput
-          placeholder="e.g. African American, Asian, Hispanic..."
-          placeholderTextColor="#9ca3af"
-          value={ethnicity}
-          onChangeText={setEthnicity}
-          style={styles.input}
-        />
+        <View style={styles.optionContainer}>
+          {[
+            "African American",
+            "Asian",
+            "Hispanic",
+            "White",
+            "Middle Eastern",
+            "Pacific Islander",
+            "Native American",
+            "Other",
+          ].map((option) => (
+            <TouchableOpacity
+              key={option}
+              onPress={() => setEthnicity(option)}
+              style={[
+                styles.option,
+                ethnicity === option && styles.optionSelected,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.optionText,
+                  ethnicity === option && styles.optionTextSelected,
+                ]}
+              >
+                {option}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
 
         <TouchableOpacity
           onPress={handleSubmit}
@@ -176,18 +199,19 @@ const styles = {
   },
   optionContainer: {
     flexDirection: "row",
+    flexWrap: "wrap",
     justifyContent: "space-between",
     marginBottom: 16,
   },
   option: {
-    flex: 1,
+    width: "48%",
     alignItems: "center",
     paddingVertical: 12,
     borderWidth: 1,
     borderRadius: 8,
     borderColor: "#3f3f3f",
     backgroundColor: "#2c2c2c",
-    marginHorizontal: 4,
+    marginBottom: 8,
   },
   optionSelected: {
     borderColor: "#fff",
