@@ -4,6 +4,8 @@ import Constants from "expo-constants";
 import { useRouter } from "expo-router";
 import * as WebBrowser from "expo-web-browser";
 import React, { useEffect, useState } from "react";
+import { registerForPushNotificationsAsync } from "../hooks/notifications";
+
 import {
   Alert,
   Image,
@@ -49,6 +51,18 @@ export default function CreateAccount() {
     }
   }, [response]);
 
+  async function savePushTokenToBackend(userId: number, pushToken: string) {
+    try {
+      await fetch(`${API_URL}/users/${userId}/push-token`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ push_token: pushToken }),
+      });
+      console.log("Saved push token for user", userId);
+    } catch (e) {
+      console.log("Failed to save push token:", e);
+    }
+  }
 
   // 2) Tell YOUR backend: “Here is a Google user, create/login them”
   const signupWithGoogleOnBackend = async (accessToken: string) => {
@@ -71,6 +85,11 @@ export default function CreateAccount() {
       }
 
       await AsyncStorage.setItem("user", JSON.stringify(data));
+      // 🔔 Ask for push notification permission
+      const token = await registerForPushNotificationsAsync();
+      if (token) {
+        await savePushTokenToBackend(data.id, token);
+      }
 
       const displayName =
         data.first_name || data.last_name
@@ -105,6 +124,11 @@ export default function CreateAccount() {
 
       if (res.ok) {
         await AsyncStorage.setItem("user", JSON.stringify(data));
+        // 🔔 Ask for push notification permission
+        const token = await registerForPushNotificationsAsync();
+        if (token) {
+          await savePushTokenToBackend(data.id, token);
+        }
         Alert.alert("✅ Account created", `Welcome ${data.first_name}!`);
         router.replace("/userinfo");
       } else {

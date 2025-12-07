@@ -4,6 +4,8 @@ import Constants from "expo-constants";
 import { useRouter } from "expo-router";
 import * as WebBrowser from "expo-web-browser";
 import React, { useEffect, useState } from "react";
+import { registerForPushNotificationsAsync } from "../hooks/notifications";
+
 import {
   Alert,
   Image,
@@ -54,6 +56,18 @@ export default function AuthScreen() {
     }
   }, [response, googleLoginRequested]);
 
+  async function savePushTokenToBackend(userId: number, pushToken: string) {
+    try {
+      await fetch(`${API_URL}/users/${userId}/push-token`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ push_token: pushToken }),
+      });
+      console.log("Saved push token for user", userId);
+    } catch (e) {
+      console.log("Failed to save push token:", e);
+    }
+  }
   // -------------------------
   // Email/password login
   // -------------------------
@@ -76,6 +90,14 @@ export default function AuthScreen() {
         // 1. Save user
         console.log("auth: ", JSON.stringify(data))
         await AsyncStorage.setItem("user", JSON.stringify(data));
+
+        // 📌 Check for push_token, if not registerForPushNotification
+        if (!data.push_token) {
+          const token = await registerForPushNotificationsAsync();
+          if (token) {
+            await savePushTokenToBackend(data.id, token);
+          }
+        }
 
         // 2. LOGIN to RevenueCat 🔥
         try {
