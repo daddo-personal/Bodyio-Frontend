@@ -209,10 +209,13 @@ export default function UploadScreen() {
         body: formData,
       });
 
-      if (!res.ok) throw new Error("Failed to upload metric");
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.detail);
+      }
 
       showToast("✅ Metric uploaded successfully!");
-
+  
       // Reset UI
       setWeight("");
       setDate(new Date());
@@ -226,8 +229,8 @@ export default function UploadScreen() {
         router.push("/(tabs)/dashboard");
       }, 600);
     } catch (err) {
-      console.error(err);
-      Alert.alert("Error", "Failed to save metric.");
+      Alert.alert(err.message);
+      router.push("/(tabs)/settings");
     } finally {
       setLoading(false);
     }
