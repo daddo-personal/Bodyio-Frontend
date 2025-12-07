@@ -159,36 +159,13 @@ export default function UploadScreen() {
       return;
     }
 
-    // ---- AUTO-FILL LOGIC ----
-    // Count how many photos were provided
-    const photos = { front, side, back };
-    const provided = Object.values(photos).filter(Boolean);
-
-    if (provided.length === 0) {
-      Alert.alert("Missing Photos", "Please upload at least one photo.");
-      return;
-    }
-
-    // Duplicate first provided photo into missing fields
-    const fallback = provided[0]; // use this image for missing labels
-
-    const finalFront = front ?? fallback;
-    const finalSide = side ?? fallback;
-    const finalBack = back ?? fallback;
-
-    // ---- VALIDATION LOGIC REMAINS SAME ----
-    // If user uploaded ANY new photos, ensure the ones they DID upload are validated
-    const requiredValidation = {
-      front: !!front,
-      side: !!side,
-      back: !!back,
-    };
-
-    const anyInvalid = Object.keys(requiredValidation).some(
-      (key) => requiredValidation[key] && !validated[key]
+    // Validate only photos that the user actually provided
+    const photosToValidate = { front, side, back };
+    const invalidUploaded = Object.keys(photosToValidate).some(
+      (key) => photosToValidate[key] && !validated[key]
     );
 
-    if (anyInvalid) {
+    if (invalidUploaded) {
       Alert.alert("Validation Required", "Please validate all uploaded photos.");
       return;
     }
@@ -202,24 +179,30 @@ export default function UploadScreen() {
       formData.append("weight", weight);
       formData.append("taken_at", date.toISOString());
 
-      // Always send 3 photos
-      formData.append("photo_front", {
-        uri: finalFront,
-        name: "front.jpg",
-        type: "image/jpeg",
-      } as any);
+      // Only append photos if user uploaded them
+      if (front) {
+        formData.append("photo_front", {
+          uri: front,
+          name: "front.jpg",
+          type: "image/jpeg",
+        } as any);
+      }
 
-      formData.append("photo_side", {
-        uri: finalSide,
-        name: "side.jpg",
-        type: "image/jpeg",
-      } as any);
+      if (side) {
+        formData.append("photo_side", {
+          uri: side,
+          name: "side.jpg",
+          type: "image/jpeg",
+        } as any);
+      }
 
-      formData.append("photo_back", {
-        uri: finalBack,
-        name: "back.jpg",
-        type: "image/jpeg",
-      } as any);
+      if (back) {
+        formData.append("photo_back", {
+          uri: back,
+          name: "back.jpg",
+          type: "image/jpeg",
+        } as any);
+      }
 
       const res = await fetch(`${API_URL}/metrics`, {
         method: "POST",
