@@ -141,7 +141,7 @@ export default function DashboardScreen() {
           setRecent(latestJson);
 
           // Chart for selected metric
-          const chartRes = await fetch(`${API_URL}/metrics?user_id=${userId}&metric=${metric}&range=${range}`);
+          const chartRes = await fetch(`${API_URL}/metrics?user_id=${userId}&metric=${metric}&metric_range=${range}`);
           const chartJson = chartRes.ok ? await chartRes.json() : { points: [], trend: 0 };
 
           const cleanedPoints = (chartJson.points || []).filter((p) => p.value != null);
