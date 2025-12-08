@@ -52,9 +52,9 @@ export default function OnboardingScreen() {
               style={{ width: 250, height: 250, resizeMode: "contain" }}
             />
           ),
-          title: "🕶️ Good Lighting & Background",
+          title: "🕶️ Good Lighting & Plain Background",
           subtitle:
-            "Ensure you’re in a well-lit area with an uncluttered, plain background.",
+            "Ensure you’re in a well-lit area with an uncluttered, plain background. No shadows",
         },
         {
           backgroundColor: "#1f1f1f",
@@ -65,7 +65,7 @@ export default function OnboardingScreen() {
             />
           ),
           title: "📸 Front Pose",
-          subtitle: "Stand tall and face forward for your front photo.",
+          subtitle: "Stand tall and face forward for your front photo, with relaxed arms.",
         },
         {
           backgroundColor: "#1f1f1f",
@@ -76,7 +76,7 @@ export default function OnboardingScreen() {
             />
           ),
           title: "↔️ Side Pose",
-          subtitle: "Turn to the side and capture a clear side profile.",
+          subtitle: "Turn to the side and capture a clear side profile, with relaxed arms.",
         },
         {
           backgroundColor: "#1f1f1f",
@@ -87,7 +87,7 @@ export default function OnboardingScreen() {
             />
           ),
           title: "🔙 Back Pose",
-          subtitle: "Face away from the camera and take your final photo.",
+          subtitle: "Face away from the camera and take your final photo, with relaxed arms.",
         },
       ]}
       DotComponent={({ selected }) => (

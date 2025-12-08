@@ -26,14 +26,15 @@ export default function EditMetricScreen() {
     const router = useRouter();
     const params = useLocalSearchParams();
     const metric = params.metric ? JSON.parse(params.metric as string) : null;
+    const initialDate = metric?.taken_at ? new Date(metric.taken_at) : new Date();
+    const [takenAt, setTakenAt] = useState(initialDate);
+    const [isDatePickerVisible, setDatePickerVisibility] = useState(false);
 
     const [toastMessage, setToastMessage] = useState("");
     const toastOpacity = useState(new Animated.Value(0))[0];
     const [userId, setUserId] = useState<string | null>(null);
     const [userName, setUserName] = useState<string>("");
     const [weight, setWeight] = useState(metric?.weight?.toString() || "");
-    const [date, setDate] = useState(new Date());
-    const [showPicker, setShowPicker] = useState(false);
 
     const [user, setUser] = useState<any>(null);
     const [isPremium, setIsPremium] = useState(false);
@@ -187,7 +188,7 @@ export default function EditMetricScreen() {
         try {
             const formData = new FormData();
             formData.append("weight", weight);
-            formData.append("taken_at", date.toISOString());
+            formData.append("taken_at", takenAt.toISOString());
 
             if (isPremium && front) formData.append("photo_front", { uri: front, name: "front.jpg", type: "image/jpeg" } as any);
             if (isPremium && side) formData.append("photo_side", { uri: side, name: "side.jpg", type: "image/jpeg" } as any);
@@ -247,18 +248,19 @@ export default function EditMetricScreen() {
 
                 <View style={styles.card}>
                     <Text style={styles.label}>Date</Text>
-                    <TouchableOpacity style={styles.input} onPress={() => setShowPicker(true)}>
-                        <Text style={{ color: "#fff", textAlign: "center" }}>{date.toDateString()}</Text>
+                    <TouchableOpacity style={styles.input} onPress={() => setDatePickerVisibility(true)}>
+                        <Text style={{ color: "#fff", textAlign: "center" }}>{takenAt.toDateString()}</Text>
                     </TouchableOpacity>
                     <DateTimePickerModal
-                        isVisible={showPicker}
+                        isVisible={isDatePickerVisible}
                         mode="date"
-                        date={date}
-                        onConfirm={handleConfirm}
-                        onCancel={() => setShowPicker(false)}
-                        maximumDate={new Date()}
+                        date={takenAt}
+                        onConfirm={(d) => {
+                            setTakenAt(d);
+                            setDatePickerVisibility(false);
+                        }}
+                        onCancel={() => setDatePickerVisibility(false)}
                     />
-
                     <Text style={styles.label}>Weight (lbs)</Text>
                     <TextInput
                         style={styles.input}

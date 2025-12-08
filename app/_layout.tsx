@@ -7,6 +7,7 @@ import { useEffect } from "react";
 import { Platform } from "react-native";
 import Purchases from "react-native-purchases";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
 
 const API_URL = Constants.expoConfig.extra.revenuecatApiKey;
 
@@ -44,17 +45,20 @@ export default function RootLayout() {
   }, []);
 
   return (
-    <SafeAreaProvider>
-      <SafeAreaView style={{ flex: 1, backgroundColor: "#1f1f1f" }}>
-        <StatusBar style="light" backgroundColor="#1f1f1f" />
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaProvider>
+        <SafeAreaView style={{ flex: 1, backgroundColor: "#1f1f1f" }}>
+          <StatusBar style="light" backgroundColor="#1f1f1f" />
 
-        <Stack
-          screenOptions={{
-            headerShown: false,
-            contentStyle: { backgroundColor: "#1f1f1f" },
-          }}
-        />
-      </SafeAreaView>
-    </SafeAreaProvider>
+          <Stack
+            screenOptions={{
+              headerShown: false,
+              contentStyle: { backgroundColor: "#1f1f1f" },
+            }}
+          />
+        </SafeAreaView>
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
+
 }

@@ -17,12 +17,12 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
 import DateTimePickerModal from "react-native-modal-datetime-picker";
 import { Animated, Easing } from "react-native";
+import { useFocusEffect } from "@react-navigation/native";
 
 const API_URL = Constants.expoConfig.extra.apiUrl;
 
 export default function UploadScreen() {
   const router = useRouter();
-
   const [user, setUser] = useState<any>(null);
   const [userId, setUserId] = useState("");
   const [height, setHeight] = useState("");
@@ -44,6 +44,43 @@ export default function UploadScreen() {
   });
   const [uploading, setUploading] = useState<{ [key: string]: boolean }>({});
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    async function checkOnboarding() {
+      const seen = await AsyncStorage.getItem("seenOnboarding");
+
+      if (seen !== "true") {
+        await AsyncStorage.setItem("seenOnboarding", "true");
+        router.push("/onboarding");
+      }
+    }
+
+    checkOnboarding();
+  }, []);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      async function loadCameraResult() {
+        const returnedPhoto = await AsyncStorage.getItem("camera_return_photo");
+        const returnedLabel = await AsyncStorage.getItem("camera_return_label");
+
+        if (returnedPhoto && returnedLabel) {
+          const valid = await validateSinglePose(returnedLabel, returnedPhoto);
+
+          if (valid) {
+            if (returnedLabel === "front") setFront(returnedPhoto);
+            if (returnedLabel === "side") setSide(returnedPhoto);
+            if (returnedLabel === "back") setBack(returnedPhoto);
+          }
+
+          await AsyncStorage.removeItem("camera_return_photo");
+          await AsyncStorage.removeItem("camera_return_label");
+        }
+      }
+
+      loadCameraResult();
+    }, [])
+  );
 
   const showToast = (message: string, duration = 1500) => {
     setToastMessage(message);
@@ -118,7 +155,7 @@ export default function UploadScreen() {
 
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
+      allowsEditing: false,
       quality: 1,
     });
 
@@ -129,21 +166,13 @@ export default function UploadScreen() {
     }
   };
 
-  const takePhoto = async (setter: (v: string) => void, label: string) => {
-    const { status } = await ImagePicker.requestCameraPermissionsAsync();
-    if (status !== "granted") {
-      Alert.alert("Permission required", "Camera access is required.");
-      return;
-    }
-
-    const result = await ImagePicker.launchCameraAsync({ allowsEditing: true, quality: 1 });
-
-    if (!result.canceled) {
-      const uri = result.assets[0].uri;
-      const valid = await validateSinglePose(label, uri);
-      if (valid) setter(uri);
-    }
+  const takePhoto = (setter: (v: string) => void, label: string) => {
+    router.push({
+      pathname: "/camera",
+      params: { label }, // front | side | back
+    });
   };
+
 
   const chooseImageSource = (setter: (v: string) => void, label: string) => {
     Alert.alert("Select Option", `Choose your ${label} photo:`, [
@@ -215,7 +244,7 @@ export default function UploadScreen() {
       }
 
       showToast("✅ Metric uploaded successfully!");
-  
+
       // Reset UI
       setWeight("");
       setDate(new Date());
