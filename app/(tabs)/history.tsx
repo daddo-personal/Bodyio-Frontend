@@ -68,25 +68,39 @@ export default function MetricsHistory() {
     }, [])
   );
 
-  const handleDelete = async (id: string) => {
-    Alert.alert("Delete Metric", "Are you sure you want to delete this metric?", [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Delete",
-        style: "destructive",
-        onPress: async () => {
-          try {
-            const res = await fetch(`${API_URL}/metrics/${id}`, { method: "DELETE" });
-            if (res.ok) setMetrics((prev) => prev.filter((m) => m.id !== id));
-            else Alert.alert("Error", "Failed to delete metric");
-          } catch (err) {
-            console.error("Error deleting metric:", err);
-            Alert.alert("Error", "Failed to delete metric");
-          }
+  const handleDelete = (id: string) => {
+    Alert.alert(
+      "Delete Metric?",
+      "This action cannot be undone. Do you want to delete this record?",
+      [
+        {
+          text: "Cancel",
+          style: "cancel",
         },
-      },
-    ]);
+        {
+          text: "Yes, Delete",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              const res = await fetch(`${API_URL}/metrics/${id}`, {
+                method: "DELETE",
+              });
+
+              if (res.ok) {
+                setMetrics((prev) => prev.filter((m) => m.id !== id));
+              } else {
+                Alert.alert("Error", "Could not delete this metric.");
+              }
+            } catch (err) {
+              console.error("❌ Delete error:", err);
+              Alert.alert("Error", "Failed to delete metric.");
+            }
+          },
+        },
+      ]
+    );
   };
+
 
   const formatLocalDate = (isoString: string) => {
     return DateTime.fromISO(isoString, { zone: "utc" })
