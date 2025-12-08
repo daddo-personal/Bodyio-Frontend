@@ -291,6 +291,25 @@ export default function UploadScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
+            {/* 🆕 TOOLTIP BUTTON — REOPEN ONBOARDING */}
+      <TouchableOpacity
+        onPress={() => router.push("/onboarding")}   // ← ADDED
+        style={{
+          position: "absolute",
+          top: 12,
+          right: 12,
+          zIndex: 50,
+          height: 32,
+          width: 32,
+          borderRadius: 16,
+          backgroundColor: "#3b3b3b",
+          justifyContent: "center",
+          alignItems: "center",
+        }}
+      >
+        <Text style={{ color: "#fff", fontSize: 18, fontWeight: "700" }}>?</Text>
+      </TouchableOpacity>
+
       <ScrollView contentContainerStyle={styles.container}>
         <Text style={styles.title}>Upload New Metric</Text>
 
