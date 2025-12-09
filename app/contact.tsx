@@ -97,7 +97,7 @@ export default function ContactScreen() {
   return (
     <SafeAreaView style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.container}>
-        
+
         {/* 🔙 Ionicons Back Button */}
         <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
           <Ionicons name="chevron-back" size={28} color="#fff" />
@@ -105,7 +105,7 @@ export default function ContactScreen() {
 
         <Text style={styles.title}>📩 Contact Support</Text>
         <Text style={styles.subtitle}>
-          Found a bug or want to share feedback? Choose a type and send us a message!
+          Found a bug or want to share feedback? Let us know!
         </Text>
 
         {/* 🔹 Type Selector */}
@@ -181,13 +181,13 @@ export default function ContactScreen() {
           disabled={loading}
           style={[
             styles.button,
-            { backgroundColor: loading ? "#6b7280" : "#16a34a" },
+            { backgroundColor: loading ? "#6b7280" : "#ffffffff" },
           ]}
         >
           {loading ? (
-            <ActivityIndicator color="#fff" />
+            <ActivityIndicator color="#000000ff" />
           ) : (
-            <Text style={styles.buttonText}>Send Message</Text>
+            <Text style={[styles.buttonText, { color: "#000" }]}>Send Message</Text>
           )}
         </TouchableOpacity>
       </ScrollView>
@@ -236,11 +236,11 @@ const styles = StyleSheet.create({
     marginHorizontal: 5,
   },
   typeButtonActive: {
-    backgroundColor: "#16a34a",
-    borderColor: "#16a34a",
+    backgroundColor: "#ffffffff",
+    borderColor: "#ffffffff",
   },
   typeText: { color: "#9ca3af", fontWeight: "500" },
-  typeTextActive: { color: "#fff", fontWeight: "600" },
+  typeTextActive: { color: "#000", fontWeight: "600" },
   input: {
     width: "100%",
     borderWidth: 1,
