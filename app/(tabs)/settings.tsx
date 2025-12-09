@@ -348,7 +348,7 @@ export default function SettingsScreen() {
                   <View
                     style={{
                       width: `${Math.min(
-                        ((user.scan_count || 0) / 5) * 100,
+                        (((user?.scan_count ?? 0) / 5) * 100),
                         100
                       )}%`,
                       height: "100%",
@@ -365,7 +365,7 @@ export default function SettingsScreen() {
                     textAlign: "right",
                   }}
                 >
-                  {(user.scan_count || 0)} / 5
+                  {(user?.scan_count ?? 0)} / 5
                 </Text>
               </View>
             )}
