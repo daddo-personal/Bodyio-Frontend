@@ -23,8 +23,8 @@ const METRICS = [
   { key: "bmi", label: "BMI" },
   { key: "fat_percent", label: "Fat %" },
   { key: "skeletal_muscle_percent", label: "Muscle %" },
-  { key: "skeletal_muscle_pounds", label: "Muscle lbs" },
-  { key: "fat_mass", label: "Fat Mass" },
+  // { key: "skeletal_muscle_pounds", label: "Muscle lbs" },
+  // { key: "fat_mass", label: "Fat Mass" },
 ];
 
 // Converts date string "2025-12-31" into readable format

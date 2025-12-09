@@ -21,9 +21,9 @@ const METRICS = [
   { key: "weight", label: "Weight", type: "absolute", premium: false },
   { key: "bmi", label: "BMI", type: "absolute", premium: false },
   { key: "fat_percent", label: "Fat %", type: "percent", premium: false },
-  { key: "fat_mass", label: "Fat Ibs", type: "absolute", premium: true },
-  { key: "skeletal_muscle_percent", label: "Muscle %", type: "percent", premium: true },
-  { key: "skeletal_muscle_pounds", label: "Muscle lbs", type: "absolute", premium: true },
+  // { key: "fat_mass", label: "Fat Ibs", type: "absolute", premium: true },
+  { key: "skeletal_muscle_percent", label: "Muscle %", type: "percent", premium: false },
+  // { key: "skeletal_muscle_pounds", label: "Muscle lbs", type: "absolute", premium: true },
 ];
 
 export default function MetricsHistory() {
@@ -40,9 +40,14 @@ export default function MetricsHistory() {
       if (!saved) return;
 
       const parsed = JSON.parse(saved);
-      setUserId(parsed.id.toString());
-      setIsPremium(parsed.is_premium || false);
+      const dataRes = await fetch(`${API_URL}/users/${parsed.id}`);
 
+      if (dataRes.ok) {
+        const data = await dataRes.json();
+        setIsPremium(data.is_premium || false);
+      }
+
+      setUserId(parsed.id.toString());
       const res = await fetch(`${API_URL}/metrics/${parsed.id}`);
       const data = await res.json();
 
@@ -107,6 +112,30 @@ export default function MetricsHistory() {
       .setZone(Intl.DateTimeFormat().resolvedOptions().timeZone)
       .toLocaleString(DateTime.DATETIME_MED_WITH_SECONDS);
   };
+
+  // --------------------------
+  // 🔐 PREMIUM LOCK SCREEN
+  // --------------------------
+  if (!loading && !isPremium) {
+    return (
+      <SafeAreaView style={styles.lockWrapper}>
+        <View style={styles.lockContent}>
+          <Text style={styles.lockTitle}>Unlock Your History</Text>
+
+          <Text style={styles.lockSubtitle}>
+            Upgrade to Premium to view and edit your full progress history.
+          </Text>
+
+          <TouchableOpacity
+            style={styles.upgradeButton}
+            onPress={() => router.push("/settings")}
+          >
+            <Text style={styles.upgradeButtonText}>Upgrade Now</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   if (loading) {
     return (
@@ -216,4 +245,39 @@ const styles = StyleSheet.create({
   button: { borderRadius: 8, paddingVertical: 10, paddingHorizontal: 16, alignItems: "center", flex: 1, marginHorizontal: 4 },
   buttonText: { fontWeight: "600", fontSize: 14, color: "#fff" },
   buttonEditText: { fontWeight: "600", fontSize: 14, color: "#060000ff" },
+  lockWrapper: {
+    flex: 1,
+    backgroundColor: "#1f1f1f",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 24,
+  },
+  lockContent: {
+    alignItems: "center",
+  },
+  lockTitle: {
+    color: "#fff",
+    fontSize: 22,
+    fontWeight: "800",
+    marginBottom: 12,
+  },
+  lockSubtitle: {
+    color: "#9ca3af",
+    fontSize: 15,
+    textAlign: "center",
+    marginBottom: 20,
+    lineHeight: 20,
+  },
+  upgradeButton: {
+    backgroundColor: "#ffffffff",
+    paddingVertical: 12,
+    paddingHorizontal: 28,
+    borderRadius: 10,
+  },
+  upgradeButtonText: {
+    color: "#000",
+    fontSize: 16,
+    fontWeight: "700",
+  },
+
 });

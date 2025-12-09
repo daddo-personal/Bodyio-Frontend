@@ -23,7 +23,7 @@ import {
 import { LineChart } from "react-native-chart-kit";
 
 const API_URL = Constants.expoConfig.extra.apiUrl;
-
+const MAX_FREE_SCANS = 5
 // ----------------------
 // Helpers
 // ----------------------
@@ -37,25 +37,27 @@ const LOCK_BLUR_OFFSETS = [
   { x: -2, y: 2 },
 ];
 
-
 const METRICS = [
   { key: "weight", label: "Weight", type: "absolute", premium: false },
   { key: "bmi", label: "BMI", type: "absolute", premium: false },
-  { key: "fat_percent", label: "Fat %", type: "percent", premium: false },
-  { key: "fat_mass", label: "Fat Ibs", type: "absolute", premium: true },
+  // { key: "fat_mass", label: "Fat Ibs", type: "absolute", premium: true },
+  { key: "fat_percent", label: "Fat %", type: "percent", premium: true },
   { key: "skeletal_muscle_percent", label: "Muscle %", type: "percent", premium: true },
-  { key: "skeletal_muscle_pounds", label: "Muscle lbs", type: "absolute", premium: true },
+  // { key: "skeletal_muscle_pounds", label: "Muscle lbs", type: "absolute", premium: true },
 ];
 
 export default function DashboardScreen() {
   const router = useRouter();
   const scrollViewRef = useRef<ScrollView | null>(null);
-
+  const formatLongDate = (isoString: string) => {
+    return DateTime.fromISO(isoString).toFormat("LLLL d, yyyy");
+  };
   // ----------------------
   // States
   // ----------------------
   const glowAnim = useRef(new Animated.Value(0)).current;
   const [shouldGlow, setShouldGlow] = useState(false);
+  const [scanCount, setScanCount] = useState(0);
 
   const [userId, setUserId] = useState<string | null>(null);
   const [userName, setUserName] = useState<string>("");
@@ -123,6 +125,38 @@ export default function DashboardScreen() {
     }, [recent])
   );
 
+
+  useEffect(() => {
+    if (!userId) return;
+    async function fetchUserData() {
+      try {
+        const res = await fetch(`${API_URL}/users/${userId}`);
+        if (!res.ok) return;
+  
+        const json = await res.json();
+
+        // Set fresh scan count
+        setScanCount(json.scan_count ?? 0);
+        // Optional: update stored user for consistency
+        const saved = await AsyncStorage.getItem("user");
+        if (!saved) return;
+        const parsed = JSON.parse(saved);
+        const dataRes = await fetch(`${API_URL}/users/${parsed.id}`);
+
+        if (dataRes.ok) {
+          const data = await dataRes.json();
+          setIsPremium(data.is_premium || false);
+          parsed.scan_count = data.scan_count;
+          await AsyncStorage.setItem("user", JSON.stringify(parsed));
+        }
+      } catch (err) {
+        console.log("Error fetching user scan count:", err);
+      }
+    }
+
+    fetchUserData();
+  }, [userId]);
+
   // ----------------------
   // Load user
   // ----------------------
@@ -138,6 +172,7 @@ export default function DashboardScreen() {
           setUserId(parsed.id.toString());
           setUserName(parsed.first_name || "User");
           setIsPremium(parsed.is_premium || false);
+          
         } else {
           Alert.alert("Not logged in", "Please log in first.");
           router.replace("/auth");
@@ -177,7 +212,12 @@ export default function DashboardScreen() {
     verifyPremium();
   }, [userId]);
 
-
+  useEffect(() => {
+    const selected = METRICS.find(m => m.key === metric);
+    if (selected?.premium && !isPremium) {
+      setMetric("weight");
+    }
+  }, [isPremium]);
   // ----------------------
   // Fetch chart & latest metrics
   // ----------------------
@@ -196,6 +236,11 @@ export default function DashboardScreen() {
           const chartRes = await fetch(`${API_URL}/metrics?user_id=${userId}&metric=${metric}&metric_range=${range}`);
           const chartJson = chartRes.ok ? await chartRes.json() : { points: [], trend: 0 };
 
+          const dataRes = await fetch(`${API_URL}/users/${userId}`);
+          if (dataRes.ok) {
+            const data = await dataRes.json();
+            setIsPremium(data.is_premium || false);
+          }
           const cleanedPoints = (chartJson.points || []).filter((p) => p.value != null);
           setData(cleanedPoints);
           setTrend(chartJson.trend || 0);
@@ -404,8 +449,10 @@ export default function DashboardScreen() {
                   const value = recent[m.key];
                   if (value == null) return null;
 
-                  const isLocked = m.premium && !isPremium;
-
+                  const isNotLocked =
+                    scanCount <= MAX_FREE_SCANS && !isPremium && m.premium;
+                  const isLocked = !isNotLocked && m.premium && !isPremium;
+                  
                   return (
                     <TouchableOpacity
                       key={m.key}
@@ -567,52 +614,76 @@ export default function DashboardScreen() {
                   </Text>
 
                   {goalProgress && selectedGoal && (
-                    <Text style={styles.modalText}>
-                      {goalProgress && selectedGoal ? (
-                        goalProgress.predicted_value == null ? (
-                          <>
-                            You need more data before predictions can be made. Upload more metrics!
-                          </>
-                        ) : (
-                          <>
-                            Based on your recent trends, you're projected to reach{" "}
-                            <Text style={{ fontWeight: "600", color: "#fff" }}>
-                              {goalProgress.predicted_value.toFixed(1)}
-                            </Text>
-                            {selectedGoal.metric.includes("percent") ? "%" : ""} by{" "}
-                            <Text style={{ fontWeight: "600", color: "#fff" }}>
-                              {selectedGoal.target_date.split("T")[0]}
-                            </Text>
+                    <View style={{ gap: 16 }}>
 
-                            {"\n\n"}
+                      {/* Projected Value Card */}
+                      <View style={styles.statCard}>
+                        <Text style={styles.statLabel}>Projected Value</Text>
+                        <Text style={styles.statNumber}>
+                          {goalProgress.predicted_value?.toFixed(1)}
+                          {selectedGoal.metric.includes("percent") ? "%" : " lbs"}
+                        </Text>
+                        <Text style={styles.statSub}>
+                          by {formatLongDate(selectedGoal.target_date)}
+                        </Text>
+                      </View>
 
-                            You need{" "}
-                            <Text style={{ fontWeight: "600", color: "#fff" }}>
-                              {(selectedGoal.target_value - goalProgress.predicted_value).toFixed(1)}
-                            </Text>{" "}
-                            more {selectedGoal.metric.includes("percent") ? "percentage points" : "lbs"} to
-                            reach your goal
+                      {/* Difference To Goal */}
+                      <View style={styles.rowCard}>
+                        <Text style={styles.rowLabel}>Remaining</Text>
+                        <Text style={[
+                          styles.rowValue,
+                          { color: "#fff" }
+                        ]}>
+                          {Math.abs(goalProgress.difference_to_goal).toFixed(1)}
+                          {selectedGoal.metric.includes("percent") ? "%" : " lbs"}
+                        </Text>
+                      </View>
 
-                            {"\n\n"}
+                      {/* Weekly Performance */}
+                      <View style={styles.rowCard}>
+                        <Text style={styles.rowLabel}>Your Weekly Trend</Text>
+                        <Text style={[
+                          styles.rowValue,
+                          { color: goalProgress.weekly_change >= 0 ? "#16a34a" : "#dc2626" }
+                        ]}>
+                          {goalProgress.weekly_change >= 0 ? "+" : "-"}
+                          {Math.abs(goalProgress.weekly_change).toFixed(2)}
+                          {selectedGoal.metric.includes("percent") ? "%/week" : " lbs/week"}
+                        </Text>
+                      </View>
 
-                            You are{" "}
-                            <Text
-                              style={{
-                                fontWeight: "600",
-                                color: goalProgress.on_track ? "#16a34a" : "#dc2626",
-                              }}
-                            >
-                              {goalProgress.on_track ? "on track ✅" : "not on track ❌"}
-                            </Text>
-                          </>
-                        )
-                      ) : (
-                        "You need more data before predictions can be made."
-                      )}
-                    </Text>
+                      {/* Required Weekly Trend */}
+                      <View style={styles.rowCard}>
+                        <Text style={styles.rowLabel}>Required Weekly Pace</Text>
+                        <Text style={[
+                          styles.rowValue,
+                          {
+                            color:
+                              goalProgress.required_weekly_change >= 0 ? "#16a34a" : "#dc2626"
+                          }
+                        ]}>
+                          {goalProgress.required_weekly_change >= 0 ? "+" : "-"}
+                          {Math.abs(goalProgress.required_weekly_change).toFixed(2)}
+                          {selectedGoal.metric.includes("percent") ? "%/week" : " lbs/week"}
+                        </Text>
+                      </View>
 
+                      {/* Status */}
+                      <View style={styles.statusCard}>
+                        <Text
+                          style={[
+                            styles.statusText,
+                            { color: goalProgress.on_track ? "#16a34a" : "#dc2626" }
+                          ]}
+                        >
+                          {goalProgress.on_track ? "On Track" : "Not On Track"}
+                        </Text>
+                      </View>
 
+                    </View>
                   )}
+
 
                   <TouchableOpacity style={styles.closeButton} onPress={() => setShowModal(false)}>
                     <Text style={{ color: "#000", fontWeight: "600" }}>Close</Text>
@@ -688,5 +759,56 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: "700",
     textAlign: "center", // numbers centered
+  },
+  statCard: {
+    backgroundColor: "#333",
+    padding: 16,
+    borderRadius: 12,
+    alignItems: "center",
+  },
+  statLabel: {
+    color: "#9ca3af",
+    fontSize: 14,
+    marginBottom: 4,
+  },
+  statNumber: {
+    color: "#fff",
+    fontSize: 32,
+    fontWeight: "700",
+  },
+  statSub: {
+    color: "#9ca3af",
+    marginTop: 4,
+    fontSize: 13,
+  },
+
+  rowCard: {
+    backgroundColor: "#2a2a2a",
+    padding: 14,
+    borderRadius: 10,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  rowLabel: {
+    color: "#9ca3af",
+    fontSize: 15,
+  },
+  rowValue: {
+    color: "#fff",
+    fontWeight: "600",
+    fontSize: 16,
+  },
+
+  statusCard: {
+    backgroundColor: "#2c2c2c",
+    padding: 18,
+    borderRadius: 12,
+    alignItems: "center",
+    marginTop: 6,
+  },
+  statusText: {
+    fontSize: 18,
+    fontWeight: "700",
   },
 });
