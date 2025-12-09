@@ -45,6 +45,12 @@ export default function UploadScreen() {
   const [uploading, setUploading] = useState<{ [key: string]: boolean }>({});
   const [loading, setLoading] = useState(false);
 
+  useFocusEffect(
+    React.useCallback(() => {
+      setDate(new Date());
+    }, [])
+  );
+
   useEffect(() => {
     async function checkOnboarding() {
       const seen = await AsyncStorage.getItem("seenOnboarding");
@@ -244,6 +250,7 @@ export default function UploadScreen() {
       }
 
       showToast("✅ Metric uploaded successfully!");
+      await AsyncStorage.setItem("highlight_recent", "true");
 
       // Reset UI
       setWeight("");
@@ -291,7 +298,7 @@ export default function UploadScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-            {/* 🆕 TOOLTIP BUTTON — REOPEN ONBOARDING */}
+      {/* 🆕 TOOLTIP BUTTON — REOPEN ONBOARDING */}
       <TouchableOpacity
         onPress={() => router.push("/onboarding")}   // ← ADDED
         style={{
@@ -315,18 +322,11 @@ export default function UploadScreen() {
 
         <View style={styles.card}>
           <Text style={styles.label}>Date</Text>
-          <TouchableOpacity style={styles.input} onPress={() => setShowPicker(true)}>
-            <Text style={{ color: "#fff", textAlign: "center" }}>{date.toDateString()}</Text>
-          </TouchableOpacity>
-          <DateTimePickerModal
-            isVisible={showPicker}
-            mode="date"
-            date={date}
-            onConfirm={handleConfirm}
-            onCancel={() => setShowPicker(false)}
-            maximumDate={new Date()}
-          />
-
+          <View style={[styles.input, { justifyContent: "center" }]}>
+            <Text style={{ color: "#fff", textAlign: "center" }}>
+              {date.toDateString()}
+            </Text>
+          </View>
           <Text style={styles.label}>Weight (lbs)</Text>
           <TextInput style={styles.input} value={weight} onChangeText={setWeight} keyboardType="numeric" />
 

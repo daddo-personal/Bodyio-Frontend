@@ -6,6 +6,7 @@ import { useRouter } from "expo-router";
 import { DateTime } from "luxon";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import Purchases from "react-native-purchases";
+import { Animated, Easing } from "react-native";
 
 import {
   ActivityIndicator,
@@ -53,6 +54,9 @@ export default function DashboardScreen() {
   // ----------------------
   // States
   // ----------------------
+  const glowAnim = useRef(new Animated.Value(0)).current;
+  const [shouldGlow, setShouldGlow] = useState(false);
+
   const [userId, setUserId] = useState<string | null>(null);
   const [userName, setUserName] = useState<string>("");
   const [isPremium, setIsPremium] = useState<boolean>(false);
@@ -69,6 +73,55 @@ export default function DashboardScreen() {
   const [goalProgress, setGoalProgress] = useState<any | null>(null);
   const [progressLoading, setProgressLoading] = useState(false);
   const [showModal, setShowModal] = useState(false);
+
+  const startGlow = () => {
+    Animated.sequence([
+      // Pulse 1
+      Animated.timing(glowAnim, {
+        toValue: 1,
+        duration: 800,
+        easing: Easing.out(Easing.ease),
+        useNativeDriver: false,
+      }),
+      Animated.timing(glowAnim, {
+        toValue: 0,
+        duration: 800,
+        easing: Easing.in(Easing.ease),
+        useNativeDriver: false,
+      }),
+
+      // Pulse 2
+      Animated.timing(glowAnim, {
+        toValue: 1,
+        duration: 800,
+        easing: Easing.out(Easing.ease),
+        useNativeDriver: false,
+      }),
+      Animated.timing(glowAnim, {
+        toValue: 0,
+        duration: 800,
+        easing: Easing.in(Easing.ease),
+        useNativeDriver: false,
+      }),
+    ]).start(() => {
+      // Turn off glow after animation
+      setShouldGlow(false);
+    });
+  };
+
+  useFocusEffect(
+    useCallback(() => {
+      async function checkGlowFlag() {
+        const flag = await AsyncStorage.getItem("highlight_recent");
+        if (flag === "true") {
+          setShouldGlow(true);
+          startGlow();
+          await AsyncStorage.removeItem("highlight_recent");
+        }
+      }
+      checkGlowFlag();
+    }, [recent])
+  );
 
   // ----------------------
   // Load user
@@ -132,7 +185,6 @@ export default function DashboardScreen() {
     useCallback(() => {
       if (!userId) return;
       setLoading(true);
-
       const fetchChartData = async () => {
         try {
           // Latest scan
@@ -318,61 +370,84 @@ export default function DashboardScreen() {
 
         {/* 🧾 Recent Scan */}
         {recent && (
-          <View style={styles.recentCard}>
-            <Text style={styles.recentTitle}>🧾 Your Recent Scan Results</Text>
-            <View style={styles.metricsGrid}>
-              {METRICS.map((m) => {
-                const value = recent[m.key];
-                if (value == null) return null;
+          <Animated.View
+            style={[
+              {
+                borderRadius: 12,
+                padding: 3,
+                marginBottom: 16,
+              },
+              shouldGlow && {
+                shadowColor: "#16a34a",
+                shadowOpacity: glowAnim.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [0.2, 0.75],
+                }),
+                shadowRadius: glowAnim.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [4, 18],
+                }),
+                shadowOffset: { width: 0, height: 0 },
+                borderWidth: glowAnim.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [0, 2],
+                }),
+                borderColor: "#16a34a",
+              },
+            ]}
+          >
 
-                const isLocked = m.premium && !isPremium;
+            <View style={styles.recentCard}>
+              <Text style={styles.recentTitle}>🧾 Your Recent Scan Results</Text>
+              <View style={styles.metricsGrid}>
+                {METRICS.map((m) => {
+                  const value = recent[m.key];
+                  if (value == null) return null;
 
-                return (
-                  <TouchableOpacity
-                    key={m.key}
-                    activeOpacity={isLocked ? 1 : 0.7}
-                    onPress={() => isLocked && router.push("/settings")}
-                    style={styles.metricTile}
-                  >
-                    {/* Metric Label - left-aligned */}
-                    <Text style={styles.metricTileLabel}>{m.label}</Text>
-                    {/* Metric Value */}
-                    {isLocked ? (
-                      <View style={{ position: "relative", alignItems: "center", justifyContent: "center", height: 28, marginTop: 4 }}>
-                        {/* Multiple blurred blobs */}
-                        {LOCK_BLUR_OFFSETS.map((o, i) => (
-                          <View
-                            key={i}
-                            style={{
-                              position: "absolute",
-                              width: 28,
-                              height: 28,
-                              borderRadius: 14,
-                              backgroundColor: "rgba(0,0,0,0.5)",
-                              blurRadius: 10,
-                              transform: [
-                                { translateX: o.x },
-                                { translateY: o.y },
-                              ],
-                            }}
-                          />
-                        ))}
-                        {/* Invisible text for layout */}
-                        <Text style={[styles.metricTileValue, { opacity: 0 }]}>{m.type === "percent" ? `${value.toFixed(1)}%` : value.toFixed(1)}</Text>
-                      </View>
-                    ) : (
-                      <Text style={styles.metricTileValue}>{m.type === "percent" ? `${value.toFixed(1)}%` : value.toFixed(1)}</Text>
-                    )}
+                  const isLocked = m.premium && !isPremium;
 
-
-
-                  </TouchableOpacity>
-                );
-              })}
+                  return (
+                    <TouchableOpacity
+                      key={m.key}
+                      activeOpacity={isLocked ? 1 : 0.7}
+                      onPress={() => isLocked && router.push("/settings")}
+                      style={styles.metricTile}
+                    >
+                      {/* Metric Label - left-aligned */}
+                      <Text style={styles.metricTileLabel}>{m.label}</Text>
+                      {/* Metric Value */}
+                      {isLocked ? (
+                        <View style={{ position: "relative", alignItems: "center", justifyContent: "center", height: 28, marginTop: 4 }}>
+                          {/* Multiple blurred blobs */}
+                          {LOCK_BLUR_OFFSETS.map((o, i) => (
+                            <View
+                              key={i}
+                              style={{
+                                position: "absolute",
+                                width: 28,
+                                height: 28,
+                                borderRadius: 14,
+                                backgroundColor: "rgba(0,0,0,0.5)",
+                                blurRadius: 10,
+                                transform: [
+                                  { translateX: o.x },
+                                  { translateY: o.y },
+                                ],
+                              }}
+                            />
+                          ))}
+                          {/* Invisible text for layout */}
+                          <Text style={[styles.metricTileValue, { opacity: 0 }]}>{m.type === "percent" ? `${value.toFixed(1)}%` : value.toFixed(1)}</Text>
+                        </View>
+                      ) : (
+                        <Text style={styles.metricTileValue}>{m.type === "percent" ? `${value.toFixed(1)}%` : value.toFixed(1)}</Text>
+                      )}
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
             </View>
-
-
-          </View>
+          </Animated.View>
         )}
 
 
@@ -614,5 +689,4 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     textAlign: "center", // numbers centered
   },
-
 });
