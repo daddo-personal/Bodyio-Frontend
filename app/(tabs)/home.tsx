@@ -85,7 +85,7 @@ export default function HomeScreen() {
         }}
       >
         <Text style={{ color: "#000", fontWeight: "700", fontSize: 16 }}>
-          🎯 Set Goals
+          🎯 Manage Goals
         </Text>
       </TouchableOpacity>
 
