@@ -630,16 +630,29 @@ export default function SettingsScreen() {
 
         {/* LOG OUT */}
         <TouchableOpacity
-          onPress={async () => {
-            await AsyncStorage.removeItem("user");
-            router.replace("/auth");
+          onPress={() => {
+            Alert.alert(
+              "Log Out",
+              "Are you sure you want to log out?",
+              [
+                { text: "Cancel", style: "cancel" },
+                {
+                  text: "Log Out",
+                  style: "destructive",
+                  onPress: async () => {
+                    await AsyncStorage.removeItem("user");
+                    await Purchases.logOut().catch(() => { });
+                    router.replace("/auth");
+                  },
+                },
+              ]
+            );
           }}
           style={[styles.button, { backgroundColor: "#fff" }]}
         >
-          <Text style={[styles.buttonText, { color: "#000" }]}>
-            Log Out
-          </Text>
+          <Text style={[styles.buttonText, { color: "#000" }]}>Log Out</Text>
         </TouchableOpacity>
+
       </ScrollView>
     </SafeAreaView>
   );
