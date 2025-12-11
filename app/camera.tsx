@@ -1,6 +1,12 @@
 // app/camera.tsx
 import React, { useRef, useState } from "react";
-import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  StyleSheet,
+  Animated,
+} from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -8,43 +14,42 @@ import { Audio } from "expo-av";
 
 export default function CameraScreen() {
   const router = useRouter();
-  const { label } = useLocalSearchParams(); // front | side | back
+  const { label } = useLocalSearchParams();
 
+  // ----- HOOKS MUST BE FIRST -----
   const [permission, requestPermission] = useCameraPermissions();
   const cameraRef = useRef(null);
 
+  const [timerEnabled, setTimerEnabled] = useState(true);
   const [countdown, setCountdown] = useState<number | null>(null);
   const [isTaking, setIsTaking] = useState(false);
 
-  if (!permission) return <View />;
-  if (!permission.granted)
-    return (
-      <View style={styles.centered}>
-        <Text style={{ color: "#fff" }}>Camera permission required</Text>
-        <TouchableOpacity onPress={requestPermission}>
-          <Text style={{ color: "#4ade80", marginTop: 10 }}>Grant Permission</Text>
-        </TouchableOpacity>
-      </View>
-    );
+  // ----- ANIMATION HOOK -----
+  const toggleAnim = useRef(new Animated.Value(1)).current;
 
-  // -------- AUDIO PLAYER ----------
-  const playCountdownSound = async (num: number) => {
-    try {
-      const { sound } = await Audio.Sound.createAsync(
-        audioFiles[num],
-        { shouldPlay: true }
-      );
-      await sound.playAsync();
-      sound.setOnPlaybackStatusUpdate((status) => {
-        if (status.didJustFinish) sound.unloadAsync();
-      });
-    } catch (err) {
-      console.warn("Audio play error:", err);
-    }
+  const toggleTimer = () => {
+    const newState = !timerEnabled;
+    setTimerEnabled(newState);
+
+    Animated.timing(toggleAnim, {
+      toValue: newState ? 1 : 0,
+      duration: 180,
+      useNativeDriver: false,
+    }).start();
   };
 
-  // Map numbers to require() paths
-  const audioFiles: Record<number, any> = {
+  const pillBackground = toggleAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ["#3f3f46", "#16a34a"],
+  });
+
+  const knobPosition = toggleAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [2, 38],
+  });
+
+  // ----- AUDIO -----
+  const audioFiles = {
     10: require("../assets/audio/10.mp3"),
     9: require("../assets/audio/9.mp3"),
     8: require("../assets/audio/8.mp3"),
@@ -57,14 +62,26 @@ export default function CameraScreen() {
     1: require("../assets/audio/1.mp3"),
   };
 
-  // -------- COUNTDOWN ----------
+  const playCountdownSound = async (num: number) => {
+    try {
+      const { sound } = await Audio.Sound.createAsync(audioFiles[num], {
+        shouldPlay: true,
+      });
+      await sound.playAsync();
+      sound.setOnPlaybackStatusUpdate((status) => {
+        if (status.didJustFinish) sound.unloadAsync();
+      });
+    } catch {}
+  };
+
+  // ----- COUNTDOWN -----
   const startCountdown = () => {
-    if (isTaking) return; // don't allow restarting countdown
+    if (isTaking) return;
 
     setIsTaking(true);
     setCountdown(10);
-    let seconds = 10;
 
+    let seconds = 10;
     playCountdownSound(seconds);
 
     const interval = setInterval(() => {
@@ -80,7 +97,7 @@ export default function CameraScreen() {
     }, 1000);
   };
 
-  // -------- TAKE PHOTO ----------
+  // ----- TAKE PHOTO -----
   const takePhoto = async () => {
     try {
       const photo = await cameraRef.current.takePictureAsync({
@@ -100,27 +117,62 @@ export default function CameraScreen() {
     }
   };
 
+  // ----------------------------------------------------
+  // UI RENDER (NO EARLY RETURNS BEFORE HOOKS!)
+  // ----------------------------------------------------
+
+  if (!permission)
+    return (
+      <View style={styles.centered}>
+        <Text style={{ color: "#fff" }}>Loading...</Text>
+      </View>
+    );
+
+  if (!permission.granted)
+    return (
+      <View style={styles.centered}>
+        <Text style={{ color: "#fff" }}>Camera permission required</Text>
+        <TouchableOpacity onPress={requestPermission}>
+          <Text style={{ color: "#4ade80", marginTop: 10 }}>Grant Permission</Text>
+        </TouchableOpacity>
+      </View>
+    );
+
   return (
     <View style={{ flex: 1, backgroundColor: "#000" }}>
-      <CameraView
-        ref={cameraRef}
-        style={styles.camera}
-        facing="back" // ONLY back camera
-      />
+      <CameraView ref={cameraRef} style={styles.camera} facing="back" />
 
-      {/* Countdown overlay */}
+      {/* COUNTDOWN OVERLAY */}
       {countdown !== null && (
         <View style={styles.countdownOverlay}>
           <Text style={styles.countdownText}>{countdown}</Text>
         </View>
       )}
 
-      {/* Capture button */}
+      {/* TIMER TOGGLE */}
+      <View style={styles.toggleContainer}>
+        <TouchableOpacity onPress={toggleTimer} activeOpacity={0.7}>
+          <Animated.View style={[styles.togglePill, { backgroundColor: pillBackground }]}>
+            <Animated.View
+              style={[styles.toggleKnob, { transform: [{ translateX: knobPosition }] }]}
+            />
+          </Animated.View>
+        </TouchableOpacity>
+
+        <Text style={styles.toggleLabel}>
+          {timerEnabled ? "Timer ON" : "Timer OFF"}
+        </Text>
+      </View>
+
+      {/* CAPTURE BUTTON */}
       <View style={styles.captureContainer}>
         <TouchableOpacity
-          style={[styles.captureButton, isTaking && { opacity: 0.4 }]}
-          onPress={startCountdown}
-          disabled={isTaking} // disable while counting down
+          style={[
+            styles.captureButton,
+            isTaking && timerEnabled && { opacity: 0.4 },
+          ]}
+          onPress={() => (timerEnabled ? startCountdown() : takePhoto())}
+          disabled={isTaking && timerEnabled}
         />
       </View>
     </View>
@@ -128,22 +180,51 @@ export default function CameraScreen() {
 }
 
 const styles = StyleSheet.create({
-  camera: {
+  camera: { flex: 1 },
+  centered: {
     flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#000",
   },
   countdownOverlay: {
     position: "absolute",
     top: 0,
+    bottom: 0,
     left: 0,
     right: 0,
-    bottom: 0,
     justifyContent: "center",
     alignItems: "center",
   },
   countdownText: {
-    color: "#fff",
     fontSize: 120,
     fontWeight: "900",
+    color: "#fff",
+  },
+  toggleContainer: {
+    position: "absolute",
+    top: 50,
+    right: 20,
+    alignItems: "center",
+  },
+  togglePill: {
+    width: 70,
+    height: 32,
+    borderRadius: 20,
+    padding: 2,
+    justifyContent: "center",
+  },
+  toggleKnob: {
+    width: 28,
+    height: 28,
+    backgroundColor: "#fff",
+    borderRadius: 14,
+  },
+  toggleLabel: {
+    color: "#fff",
+    marginTop: 6,
+    fontSize: 12,
+    fontWeight: "600",
   },
   captureContainer: {
     position: "absolute",
@@ -158,11 +239,5 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
     borderWidth: 5,
     borderColor: "#aaa",
-  },
-  centered: {
-    flex: 1,
-    backgroundColor: "#000",
-    alignItems: "center",
-    justifyContent: "center",
   },
 });

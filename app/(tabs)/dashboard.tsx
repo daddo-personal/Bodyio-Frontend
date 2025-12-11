@@ -69,6 +69,7 @@ export default function DashboardScreen() {
   const [metric, setMetric] = useState("weight");
   const [range, setRange] = useState("ytd");
   const [loading, setLoading] = useState(true);
+  const [weightUnit, setWeightUnit] = useState<"lbs" | "kg">("lbs");
 
   const [goals, setGoals] = useState<any[]>([]);
   const [selectedGoal, setSelectedGoal] = useState<any | null>(null);
@@ -126,13 +127,32 @@ export default function DashboardScreen() {
   );
 
 
+  useFocusEffect(
+    useCallback(() => {
+      async function loadUnit() {
+        const saved = await AsyncStorage.getItem("weight_unit");
+        if (saved === "kg" || saved === "lbs") {
+          setWeightUnit(saved);
+        }
+      }
+      loadUnit();
+    }, [])
+  );
+
+  const formatWeight = (lbsValue: number) => {
+    if (weightUnit === "kg") {
+      return (lbsValue / 2.20462).toFixed(1) + " kg";
+    }
+    return lbsValue.toFixed(1) + " lbs";
+  };
+
   useEffect(() => {
     if (!userId) return;
     async function fetchUserData() {
       try {
         const res = await fetch(`${API_URL}/users/${userId}`);
         if (!res.ok) return;
-  
+
         const json = await res.json();
 
         // Set fresh scan count
@@ -172,7 +192,7 @@ export default function DashboardScreen() {
           setUserId(parsed.id.toString());
           setUserName(parsed.first_name || "User");
           setIsPremium(parsed.is_premium || false);
-          
+
         } else {
           Alert.alert("Not logged in", "Please log in first.");
           router.replace("/auth");
@@ -368,7 +388,14 @@ export default function DashboardScreen() {
     .sort((a, b) => DateTime.fromISO(a.day).toMillis() - DateTime.fromISO(b.day).toMillis());
 
   // Labels and values for chart
-  const values = groupedData.map((p) => p.value);
+  const values = groupedData.map((p) => {
+    if (metric === "weight") {
+      return weightUnit === "kg"
+        ? Number((p.value / 2.20462).toFixed(1))
+        : Number(p.value.toFixed(1));
+    }
+    return Number(p.value.toFixed(1));
+  });
 
   let labels = groupedData.map((p) =>
     DateTime.fromISO(p.day).toLocaleString({ month: "short", day: "numeric" })
@@ -452,7 +479,7 @@ export default function DashboardScreen() {
                   const isNotLocked =
                     scanCount <= MAX_FREE_SCANS && !isPremium && m.premium;
                   const isLocked = !isNotLocked && m.premium && !isPremium;
-                  
+
                   return (
                     <TouchableOpacity
                       key={m.key}
@@ -487,7 +514,13 @@ export default function DashboardScreen() {
                           <Text style={[styles.metricTileValue, { opacity: 0 }]}>{m.type === "percent" ? `${value.toFixed(1)}%` : value.toFixed(1)}</Text>
                         </View>
                       ) : (
-                        <Text style={styles.metricTileValue}>{m.type === "percent" ? `${value.toFixed(1)}%` : value.toFixed(1)}</Text>
+                        <Text style={styles.metricTileValue}>
+                          {m.key === "weight"
+                            ? formatWeight(value)
+                            : m.type === "percent"
+                              ? `${value.toFixed(1)}%`
+                              : value.toFixed(1)}
+                        </Text>
                       )}
                     </TouchableOpacity>
                   );
@@ -546,7 +579,11 @@ export default function DashboardScreen() {
               data={{ labels, datasets: [{ data: values, color: () => color }] }}
               width={Dimensions.get("window").width - 40}
               height={260}
-              yAxisSuffix={metricType === "percent" ? "%" : ""}
+              yAxisSuffix={
+                metric === "weight"
+                  ? (weightUnit === "kg" ? " kg" : " lbs")
+                  : (metricType === "percent" ? "%" : "")
+              }
               withVerticalLines={false}
               withHorizontalLines
               withDots

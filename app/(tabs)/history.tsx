@@ -31,6 +31,7 @@ export default function MetricsHistory() {
   const [loading, setLoading] = useState(true);
   const [userId, setUserId] = useState<string | null>(null);
   const [isPremium, setIsPremium] = useState(false);
+  const [weightUnit, setWeightUnit] = useState<"lbs" | "kg">("lbs");
   const router = useRouter();
 
   const fetchMetrics = async () => {
@@ -65,6 +66,25 @@ export default function MetricsHistory() {
     } finally {
       setLoading(false);
     }
+  };
+
+  useFocusEffect(
+    useCallback(() => {
+      async function loadUnit() {
+        const saved = await AsyncStorage.getItem("weight_unit");
+        if (saved === "kg" || saved === "lbs") {
+          setWeightUnit(saved);
+        }
+      }
+      loadUnit();
+    }, [])
+  );
+
+  const formatWeight = (lbsValue: number) => {
+    if (weightUnit === "kg") {
+      return (lbsValue / 2.20462).toFixed(1) + " kg";
+    }
+    return lbsValue.toFixed(1) + " lbs";
   };
 
   useFocusEffect(
@@ -168,8 +188,17 @@ export default function MetricsHistory() {
                 return (
                   <View key={metric.key} style={styles.metricTile}>
                     <Text style={styles.metricTileLabel}>{metric.label}</Text>
+
                     {isLocked ? (
-                      <View style={{ position: "relative", alignItems: "center", justifyContent: "center", height: 28, marginTop: 4 }}>
+                      <View
+                        style={{
+                          position: "relative",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          height: 28,
+                          marginTop: 4,
+                        }}
+                      >
                         {[...Array(6)].map((_, i) => (
                           <View
                             key={i}
@@ -188,17 +217,26 @@ export default function MetricsHistory() {
                           />
                         ))}
                         <Text style={[styles.metricTileValue, { opacity: 0 }]}>
-                          {metric.type === "percent" ? `${value.toFixed(1)}%` : value.toFixed(1)}
+                          {metric.key === "weight"
+                            ? formatWeight(value)
+                            : metric.type === "percent"
+                              ? `${value.toFixed(1)}%`
+                              : value.toFixed(1)}
                         </Text>
                       </View>
                     ) : (
                       <Text style={styles.metricTileValue}>
-                        {metric.type === "percent" ? `${value.toFixed(1)}%` : value.toFixed(1)}
+                        {metric.key === "weight"
+                          ? formatWeight(value)
+                          : metric.type === "percent"
+                            ? `${value.toFixed(1)}%`
+                            : value.toFixed(1)}
                       </Text>
                     )}
                   </View>
                 );
               })}
+
             </View>
 
             {/* Buttons */}

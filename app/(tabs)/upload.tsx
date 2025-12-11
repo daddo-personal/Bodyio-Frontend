@@ -29,6 +29,7 @@ export default function UploadScreen() {
   const [weight, setWeight] = useState("");
   const [toastMessage, setToastMessage] = useState("");
   const toastOpacity = useState(new Animated.Value(0))[0];
+  const [unit, setUnit] = useState<"lbs" | "kg">("lbs");
 
   const [date, setDate] = useState(new Date());
   const [showPicker, setShowPicker] = useState(false);
@@ -64,6 +65,16 @@ export default function UploadScreen() {
     checkOnboarding();
   }, []);
 
+  useEffect(() => {
+    async function loadUnitPreference() {
+      const saved = await AsyncStorage.getItem("weight_unit");
+      if (saved === "kg" || saved === "lbs") {
+        setUnit(saved);
+      }
+    }
+    loadUnitPreference();
+  }, []);
+
   useFocusEffect(
     React.useCallback(() => {
       async function loadCameraResult() {
@@ -87,6 +98,105 @@ export default function UploadScreen() {
       loadCameraResult();
     }, [])
   );
+
+  const UnitToggle = ({ unit, toggleUnit }) => {
+    return (
+      <TouchableOpacity
+        onPress={toggleUnit}
+        activeOpacity={0.9}
+        style={{
+          width: 80,
+          height: 36,
+          borderRadius: 18,
+          backgroundColor: "#3b3b3b",
+          padding: 3,
+          flexDirection: "row",
+          alignItems: "center",
+          position: "relative",
+        }}
+      >
+
+        {/* Sliding Circle */}
+        <View
+          style={{
+            position: "absolute",
+            width: 34,
+            height: 32,
+            borderRadius: 17,
+            backgroundColor: "#fff",
+            left: unit === "lbs" ? 2 : 44,
+            top: 1,
+            zIndex: 5,
+          }}
+        />
+
+        {/* LBS label */}
+        <View
+          style={{
+            flex: 1,
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 10,
+          }}
+        >
+          <Text
+            style={{
+              color: unit === "lbs" ? "#fff" : "#bbb",
+              fontWeight: "700",
+            }}
+          >
+            lbs
+          </Text>
+        </View>
+
+        {/* KG label */}
+        <View
+          style={{
+            flex: 1,
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 10,
+          }}
+        >
+          <Text
+            style={{
+              color: unit === "kg" ? "#fff" : "#bbb",
+              fontWeight: "700",
+            }}
+          >
+            kg
+          </Text>
+        </View>
+      </TouchableOpacity>
+    );
+  };
+
+
+  const toggleUnit = async () => {
+    if (weight) {
+      let converted = "";
+
+      if (unit === "lbs") {
+        // lbs → kg
+        converted = (parseFloat(weight) / 2.20462).toFixed(1);
+        setUnit("kg");
+        setWeight(converted);
+        await AsyncStorage.setItem("weight_unit", "kg");
+      } else {
+        // kg → lbs
+        converted = (parseFloat(weight) * 2.20462).toFixed(1);
+        setUnit("lbs");
+        setWeight(converted);
+        await AsyncStorage.setItem("weight_unit", "lbs");
+      }
+    } else {
+      // no weight typed yet → just toggle unit
+      const newUnit = unit === "lbs" ? "kg" : "lbs";
+      setUnit(newUnit);
+      await AsyncStorage.setItem("weight_unit", newUnit);
+    }
+  };
+
 
   const showToast = (message: string, duration = 1500) => {
     setToastMessage(message);
@@ -209,9 +319,15 @@ export default function UploadScreen() {
 
     try {
       const formData = new FormData();
+      let finalWeight = weight;
+
+      if (unit === "kg") {
+        finalWeight = (parseFloat(weight) * 2.20462).toFixed(1); // convert to lbs
+      }
+
       formData.append("user_id", userId);
       formData.append("height", height);
-      formData.append("weight", weight);
+      formData.append("weight", finalWeight);
       formData.append("taken_at", date.toISOString());
 
       // Only append photos if user uploaded them
@@ -254,6 +370,7 @@ export default function UploadScreen() {
 
       // Reset UI
       setWeight("");
+      setUnit(await AsyncStorage.getItem("weight_unit") || "lbs");
       setDate(new Date());
       setFront(null);
       setSide(null);
@@ -327,8 +444,21 @@ export default function UploadScreen() {
               {date.toDateString()}
             </Text>
           </View>
-          <Text style={styles.label}>Weight (lbs)</Text>
-          <TextInput style={styles.input} value={weight} onChangeText={setWeight} keyboardType="numeric" />
+
+          <Text style={styles.label}>Weight ({unit})</Text>
+
+          {/* Unit toggle directly under label */}
+          <View style={{ marginBottom: 12 }}>
+            <UnitToggle unit={unit} toggleUnit={toggleUnit} />
+          </View>
+
+          {/* Weight input under toggle */}
+          <TextInput
+            style={[styles.input, { textAlign: "center" }]}
+            value={weight}
+            onChangeText={setWeight}
+            keyboardType="numeric"
+          />
 
           {renderPhotoInput("Front", front, setFront)}
           {renderPhotoInput("Side", side, setSide)}
@@ -373,8 +503,17 @@ const styles = StyleSheet.create({
   card: { backgroundColor: "#2c2c2c", borderRadius: 12, padding: 16, marginBottom: 20, alignItems: "center" },
   title: { color: "#fff", fontSize: 20, fontWeight: "700", textAlign: "center", marginBottom: 20 },
   label: { color: "#d1d5db", marginBottom: 6, fontWeight: "600" },
-  input: { backgroundColor: "#1f1f1f", color: "#fff", padding: 12, borderRadius: 8, width: "100%", marginBottom: 20, textAlign: "center" },
-  button: { borderRadius: 8, paddingVertical: 12, paddingHorizontal: 20, marginTop: 8, alignItems: "center", width: 200 },
+  input: {
+    backgroundColor: "#1f1f1f",
+    color: "#fff",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    height: 44,          // 👈 enforce consistent height
+    borderRadius: 8,
+    width: "100%",
+    marginBottom: 20,
+    textAlign: "left",   // 👈 prevents visual drift
+  }, button: { borderRadius: 8, paddingVertical: 12, paddingHorizontal: 20, marginTop: 8, alignItems: "center", width: 200 },
   buttonText: { fontWeight: "600", fontSize: 16 },
   preview: { width: 160, height: 200, borderRadius: 8, marginBottom: 8 },
   placeholder: { color: "#9ca3af", marginBottom: 8 },
