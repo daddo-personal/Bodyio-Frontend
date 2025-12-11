@@ -321,7 +321,7 @@ export default function GoalsScreen() {
               mode="date"
               onConfirm={handleConfirmDate}
               onCancel={() => setPickerVisible(false)}
-              minimumDate={new Date(2025, 0, 1)} 
+              minimumDate={new Date()} 
             />
 
             {/* Buttons */}
