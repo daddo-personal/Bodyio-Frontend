@@ -507,7 +507,8 @@ export default function SettingsScreen() {
         {/* PROFILE INFO */}
         <View style={styles.card}>
           <Text style={styles.sectionTitle}>👤 Profile Info</Text>
-
+          
+          <Text style={styles.label}>First Name</Text>
           <TextInput
             value={firstName}
             onChangeText={setFirstName}
@@ -517,6 +518,7 @@ export default function SettingsScreen() {
             style={styles.input}
           />
 
+          <Text style={styles.label}>Last Name</Text>
           <TextInput
             value={lastName}
             onChangeText={setLastName}
@@ -526,6 +528,7 @@ export default function SettingsScreen() {
             style={styles.input}
           />
 
+          <Text style={styles.label}>Email</Text>
           <TextInput
             value={email}
             onChangeText={setEmail}
@@ -537,17 +540,7 @@ export default function SettingsScreen() {
             style={styles.input}
           />
 
-          <TextInput
-            value={password}
-            onChangeText={setPassword}
-            editable={editing}
-            placeholder="Password"
-            placeholderTextColor="#9ca3af"
-            secureTextEntry={true}
-            autoCapitalize="none"
-            style={styles.input}
-          />
-
+          <Text style={styles.label}>Height (inches)</Text>
           <TextInput
             value={height}
             onChangeText={setHeight}
@@ -732,4 +725,10 @@ const styles = {
     color: "#000",
     fontSize: 16,
   },
+  label: {
+  color: "#9ca3af",
+  fontSize: 13,
+  marginBottom: 6,
+  marginLeft: 4,
+},
 };

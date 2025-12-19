@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -16,11 +16,85 @@ const API_URL = Constants.expoConfig.extra.apiUrl;
 
 export default function UserInfo() {
   const router = useRouter();
+
   const [age, setAge] = useState("");
   const [weight, setWeight] = useState("");
   const [height, setHeight] = useState("");
   const [ethnicity, setEthnicity] = useState("");
   const [sex, setSex] = useState<"male" | "female" | "other" | "">("");
+
+  // 🆕 UNIT STATE
+  const [unit, setUnit] = useState<"lbs" | "kg">("lbs");
+
+  // 🆕 Load unit preference
+  useEffect(() => {
+    async function loadUnit() {
+      const saved = await AsyncStorage.getItem("weight_unit");
+      if (saved === "lbs" || saved === "kg") setUnit(saved);
+    }
+    loadUnit();
+  }, []);
+
+  // 🆕 Toggle lbs/kg + convert inputted weight
+  const toggleUnit = async () => {
+    if (weight) {
+      let converted = "";
+
+      if (unit === "lbs") {
+        converted = (parseFloat(weight) / 2.20462).toFixed(1);
+        setUnit("kg");
+        setWeight(converted);
+        await AsyncStorage.setItem("weight_unit", "kg");
+      } else {
+        converted = (parseFloat(weight) * 2.20462).toFixed(1);
+        setUnit("lbs");
+        setWeight(converted);
+        await AsyncStorage.setItem("weight_unit", "lbs");
+      }
+    } else {
+      const newUnit = unit === "lbs" ? "kg" : "lbs";
+      setUnit(newUnit);
+      await AsyncStorage.setItem("weight_unit", newUnit);
+    }
+  };
+
+  // 🆕 UI Toggle Component
+  const UnitToggle = () => (
+    <TouchableOpacity
+      onPress={toggleUnit}
+      activeOpacity={0.9}
+      style={{
+        width: 80,
+        height: 36,
+        borderRadius: 18,
+        backgroundColor: "#3b3b3b",
+        padding: 3,
+        flexDirection: "row",
+        alignItems: "center",
+        position: "relative",
+        marginBottom: 10,
+      }}
+    >
+      <View
+        style={{
+          position: "absolute",
+          width: 34,
+          height: 32,
+          borderRadius: 17,
+          backgroundColor: "#fff",
+          left: unit === "lbs" ? 2 : 44,
+          top: 1,
+          zIndex: 5,
+        }}
+      />
+      <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+        <Text style={{ color: unit === "lbs" ? "#fff" : "#bbb", fontWeight: "700" }}>lbs</Text>
+      </View>
+      <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+        <Text style={{ color: unit === "kg" ? "#fff" : "#bbb", fontWeight: "700" }}>kg</Text>
+      </View>
+    </TouchableOpacity>
+  );
 
   const handleSubmit = async () => {
     if (!age || !weight || !height || !ethnicity || !sex) {
@@ -38,12 +112,16 @@ export default function UserInfo() {
       const parsed = JSON.parse(saved);
       const userID = parsed.id;
 
+      // 🆕 Always convert to lbs before saving to backend
+      const finalWeight =
+        unit === "kg" ? (parseFloat(weight) * 2.20462).toFixed(1) : weight;
+
       const res = await fetch(`${API_URL}/users/${userID}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           age: parseInt(age),
-          weight: parseFloat(weight),
+          weight: parseFloat(finalWeight),
           height: parseFloat(height),
           ethnicity,
           sex,
@@ -58,6 +136,7 @@ export default function UserInfo() {
 
       const updatedUser = await res.json();
       await AsyncStorage.setItem("user", JSON.stringify(updatedUser));
+
       router.replace("/(tabs)/home");
     } catch (err) {
       console.error("❌ Network error:", err);
@@ -80,9 +159,12 @@ export default function UserInfo() {
           style={styles.input}
         />
 
-        <Text style={styles.label}>Weight (lbs)</Text>
+        {/* 🆕 Weight Section With Toggle */}
+        <Text style={styles.label}>Weight ({unit})</Text>
+        <UnitToggle />
+
         <TextInput
-          placeholder="Enter your weight"
+          placeholder={`Enter your weight in ${unit}`}
           placeholderTextColor="#9ca3af"
           value={weight}
           onChangeText={setWeight}
@@ -167,14 +249,8 @@ export default function UserInfo() {
 }
 
 const styles = {
-  safeArea: {
-    flex: 1,
-    backgroundColor: "#1f1f1f",
-  },
-  container: {
-    flexGrow: 1,
-    padding: 24,
-  },
+  safeArea: { flex: 1, backgroundColor: "#1f1f1f" },
+  container: { flexGrow: 1, padding: 24 },
   title: {
     fontSize: 24,
     fontWeight: "700",
@@ -182,12 +258,7 @@ const styles = {
     marginBottom: 24,
     textAlign: "center",
   },
-  label: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#fff",
-    marginBottom: 6,
-  },
+  label: { fontSize: 16, fontWeight: "600", color: "#fff", marginBottom: 6 },
   input: {
     borderWidth: 1,
     borderColor: "#3f3f3f",
@@ -213,25 +284,9 @@ const styles = {
     backgroundColor: "#2c2c2c",
     marginBottom: 8,
   },
-  optionSelected: {
-    borderColor: "#fff",
-    backgroundColor: "#3b3b3b",
-  },
-  optionText: {
-    color: "#d1d5db",
-    fontWeight: "500",
-  },
-  optionTextSelected: {
-    color: "#fff",
-    fontWeight: "700",
-  },
-  button: {
-    borderRadius: 8,
-    padding: 14,
-    alignItems: "center",
-  },
-  buttonText: {
-    fontWeight: "600",
-    fontSize: 16,
-  },
+  optionSelected: { borderColor: "#fff", backgroundColor: "#3b3b3b" },
+  optionText: { color: "#d1d5db", fontWeight: "500" },
+  optionTextSelected: { color: "#fff", fontWeight: "700" },
+  button: { borderRadius: 8, padding: 14, alignItems: "center" },
+  buttonText: { fontWeight: "600", fontSize: 16 },
 };

@@ -109,8 +109,26 @@ export default function AuthScreen() {
 
         // 3. Redirect
         router.replace("/(tabs)/home");
-      } else {
+      } 
+      else if (res.status === 403) {
+        await AsyncStorage.setItem("pendingUser", JSON.stringify({ email: email }));
+        const res = await fetch(`${API_URL}/auth/resend-code`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: email }),
+        });
+
+        if (res.ok) {
+        router.push({
+        pathname: "/verify-email",
+        params: { email: email },
+      });
+    }
+      }
+      
+      else {
         Alert.alert("Login failed", data.detail || "Invalid credentials");
+
       }
     } catch (error) {
       console.error("❌ Network error:", error);

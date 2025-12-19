@@ -114,7 +114,7 @@ export default function CreateAccount() {
     }
 
     try {
-      const res = await fetch(`${API_URL}/users`, {
+      const res = await fetch(`${API_URL}/auth/register`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ firstName, lastName, email, password }),
@@ -122,18 +122,22 @@ export default function CreateAccount() {
 
       const data = await res.json();
 
-      if (res.ok) {
-        await AsyncStorage.setItem("user", JSON.stringify(data));
-        // 🔔 Ask for push notification permission
-        const token = await registerForPushNotificationsAsync();
-        if (token) {
-          await savePushTokenToBackend(data.id, token);
-        }
-        Alert.alert("✅ Account created", `Welcome ${data.first_name}!`);
-        router.replace("/userinfo");
-      } else {
+      if (!res.ok) {
         Alert.alert("Error", data.detail || "Signup failed");
+        return;
       }
+
+      await AsyncStorage.setItem("pendingUser", JSON.stringify({ email: email }));
+      Alert.alert(
+        "Verify your email",
+        "We've sent a 6-digit code to your email. Enter it to complete signup."
+      );
+
+      router.push({
+        pathname: "/verify-email",
+        params: { email: email },
+      });
+
     } catch (error) {
       console.error("❌ Signup error", error);
       Alert.alert("Network error", "Please try again later.");
