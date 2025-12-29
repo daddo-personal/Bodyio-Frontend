@@ -367,24 +367,25 @@ export default function DashboardScreen() {
   // ----------------------
   // Prepare chart data
   // ----------------------
-  const groupedMap: { [day: string]: number[] } = {};
+  const latestByDay: Record<string, { taken_at: string; value: number }> = {};
 
   data.forEach((point) => {
-    // Parse UTC timestamp, convert to local timezone, get YYYY-MM-DD
+    // dayKey in user's local timezone (so "day" matches what they expect)
     const dayKey = DateTime.fromISO(point.taken_at, { zone: "utc" })
       .setZone(Intl.DateTimeFormat().resolvedOptions().timeZone)
       .toISODate();
 
-    if (!groupedMap[dayKey]) groupedMap[dayKey] = [];
-    groupedMap[dayKey].push(point.value);
+    const prev = latestByDay[dayKey];
+    const currTime = new Date(point.taken_at).getTime();
+
+    if (!prev || currTime > new Date(prev.taken_at).getTime()) {
+      latestByDay[dayKey] = { taken_at: point.taken_at, value: Number(point.value) };
+    }
   });
 
-  // Compute daily averages and sort by day
-  const groupedData = Object.entries(groupedMap)
-    .map(([day, values]) => ({
-      day,
-      value: values.reduce((sum, val) => sum + val, 0) / values.length,
-    }))
+  // Sort by day ascending
+  const groupedData = Object.entries(latestByDay)
+    .map(([day, v]) => ({ day, value: v.value }))
     .sort((a, b) => DateTime.fromISO(a.day).toMillis() - DateTime.fromISO(b.day).toMillis());
 
   // Labels and values for chart

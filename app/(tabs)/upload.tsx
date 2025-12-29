@@ -389,29 +389,77 @@ export default function UploadScreen() {
     }
   };
 
+  const clearPhoto = (label: "front" | "side" | "back") => {
+    if (label === "front") setFront(null);
+    if (label === "side") setSide(null);
+    if (label === "back") setBack(null);
 
-  const renderPhotoInput = (label: string, uri: string | null, setter: (v: string) => void) => (
-    <View style={{ marginBottom: 20, alignItems: "center" }}>
-      <Text style={styles.label}>{label} Photo</Text>
-      {uri ? <Image source={{ uri }} style={styles.preview} /> : <Text style={styles.placeholder}>No photo uploaded</Text>}
-      {validated[label.toLowerCase()] && uri && (
-        <View style={styles.checkmark}>
-          <Text style={{ color: "#fff", fontSize: 16 }}>✅</Text>
-        </View>
-      )}
-      <TouchableOpacity
-        style={[styles.button, { backgroundColor: "#fff" }]}
-        onPress={() => chooseImageSource(setter, label.toLowerCase())}
-        disabled={uploading[label.toLowerCase()]}
-      >
-        {uploading[label.toLowerCase()] ? (
-          <ActivityIndicator color="#000" />
+    setValidated((prev) => ({
+      ...prev,
+      [label]: false,
+    }));
+  };
+
+  const renderPhotoInput = (
+    label: string,
+    uri: string | null,
+    setter: (v: string | null) => void
+  ) => {
+    const key = label.toLowerCase() as "front" | "side" | "back";
+
+    return (
+      <View style={{ marginBottom: 20, alignItems: "center" }}>
+        <Text style={styles.label}>{label} Photo</Text>
+
+        {uri ? (
+          <Image source={{ uri }} style={styles.preview} />
         ) : (
-          <Text style={[styles.buttonText, { color: "#000" }]}>{uri ? "Retake" : "Add"} {label} Photo</Text>
+          <Text style={styles.placeholder}>No photo uploaded</Text>
         )}
-      </TouchableOpacity>
-    </View>
-  );
+
+        {/* ✅ validation check */}
+        {validated[key] && uri && (
+          <View style={styles.checkmark}>
+            <Text style={{ color: "#fff", fontSize: 16 }}>✅</Text>
+          </View>
+        )}
+
+        {/* Add / Retake */}
+        <TouchableOpacity
+          style={[styles.button, { backgroundColor: "#fff" }]}
+          onPress={() => chooseImageSource(setter as any, key)}
+        >
+          <Text style={[styles.buttonText, { color: "#000" }]}>
+            {uri ? "Retake" : "Add"} {label} Photo
+          </Text>
+        </TouchableOpacity>
+
+        {/* 🧹 CLEAR BUTTON (only if photo exists) */}
+        {uri && (
+          <TouchableOpacity
+            onPress={() =>
+              Alert.alert(
+                "Remove photo?",
+                `Clear your ${label.toLowerCase()} photo?`,
+                [
+                  { text: "Cancel", style: "cancel" },
+                  { text: "Clear", style: "destructive", onPress: () => clearPhoto(key) },
+                ]
+              )
+            }
+            style={{
+              marginTop: 6,
+            }}
+          >
+            <Text style={{ color: "#f87171", fontWeight: "600" }}>
+              Clear {label} Photo
+            </Text>
+          </TouchableOpacity>
+        )}
+      </View>
+    );
+  };
+
 
   return (
     <SafeAreaView style={styles.safeArea}>

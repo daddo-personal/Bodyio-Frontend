@@ -221,11 +221,6 @@ export default function EditMetricScreen() {
     // CHOOSE IMAGE SOURCE (uses custom camera)
     // ----------------------------------------------------
     const pickImage = async (setter, label) => {
-        if (!isPremium) {
-            Alert.alert("Premium Only", "Photo uploads require premium.");
-            return;
-        }
-
         const result = await ImagePicker.launchImageLibraryAsync({
             mediaTypes: ImagePicker.MediaTypeOptions.Images,
             quality: 1,
@@ -239,11 +234,6 @@ export default function EditMetricScreen() {
     };
 
     const takePhoto = (setter, label) => {
-        if (!isPremium) {
-            Alert.alert("Premium Only", "Photo uploads require premium.");
-            return;
-        }
-
         router.push({
             pathname: "/camera",
             params: { label },
@@ -316,36 +306,82 @@ export default function EditMetricScreen() {
         );
     };
 
+    const clearPhoto = (label: "front" | "side" | "back") => {
+        if (label === "front") setFront(null);
+        if (label === "side") setSide(null);
+        if (label === "back") setBack(null);
+
+        setValidated((prev) => ({
+            ...prev,
+            [label]: false,
+        }));
+    };
+
     // ----------------------------------------------------
     // PHOTO INPUT RENDERER
     // ----------------------------------------------------
-    const renderPhotoInput = (label, uri, setter) => (
-        <View style={{ marginBottom: 20, alignItems: "center" }}>
-            <Text style={styles.label}>{label} Photo</Text>
+    const renderPhotoInput = (
+        label: string,
+        uri: string | null,
+        setter: (v: string) => void
+    ) => {
+        const key = label.toLowerCase() as "front" | "side" | "back";
 
-            {uri ? (
-                <Image source={{ uri }} style={styles.preview} />
-            ) : (
-                <Text style={styles.placeholder}>No photo uploaded</Text>
-            )}
+        return (
+            <View style={{ marginBottom: 20, alignItems: "center" }}>
+                <Text style={styles.label}>{label} Photo</Text>
 
-            {validated[label.toLowerCase()] && uri && (
-                <View style={styles.checkmark}>
-                    <Text style={{ color: "#fff" }}>✅</Text>
-                </View>
-            )}
+                {uri ? (
+                    <Image source={{ uri }} style={styles.preview} />
+                ) : (
+                    <Text style={styles.placeholder}>No photo uploaded</Text>
+                )}
 
-            <TouchableOpacity
-                style={[styles.button, { backgroundColor: isPremium ? "#fff" : "#6b7280" }]}
-                onPress={() => chooseImageSource(setter, label.toLowerCase())}
-                disabled={!isPremium}
-            >
-                <Text style={[styles.buttonText, { color: isPremium ? "#000" : "#ccc" }]}>
-                    {uri ? "Retake" : "Add"} {label} Photo
-                </Text>
-            </TouchableOpacity>
-        </View>
-    );
+                {validated[key] && uri && (
+                    <View style={styles.checkmark}>
+                        <Text style={{ color: "#fff", fontSize: 16 }}>✅</Text>
+                    </View>
+                )}
+
+                <TouchableOpacity
+                    style={[styles.button, { backgroundColor: "#fff" }]}
+                    onPress={() => chooseImageSource(setter, key)}
+                    disabled={uploading[key]}
+                >
+                    {uploading[key] ? (
+                        <ActivityIndicator color="#000" />
+                    ) : (
+                        <Text style={[styles.buttonText, { color: "#000" }]}>
+                            {uri ? "Retake" : "Add"} {label} Photo
+                        </Text>
+                    )}
+                </TouchableOpacity>
+
+                {/* ✅ Clear option */}
+                {uri && (
+                    <TouchableOpacity
+                        onPress={() =>
+                            Alert.alert(
+                                "Remove photo?",
+                                `Clear your ${key} photo?`,
+                                [
+                                    { text: "Cancel", style: "cancel" },
+                                    { text: "Clear", style: "destructive", onPress: () => clearPhoto(key) },
+                                ]
+                            )
+                        }
+                        style={{ marginTop: 6 }}
+                        disabled={uploading[key]}
+                    >
+                        <Text style={{ color: "#f87171", fontWeight: "600" }}>
+                            Clear {label} Photo
+                        </Text>
+                    </TouchableOpacity>
+                )}
+            </View>
+        );
+    };
+
 
     return (
         <SafeAreaView style={styles.safeArea}>
@@ -387,18 +423,12 @@ export default function EditMetricScreen() {
                         keyboardType="numeric"
                     />
 
-                    {/* PHOTOS (Premium Only) */}
-                    {isPremium ? (
-                        <>
-                            {renderPhotoInput("Front", front, setFront)}
-                            {renderPhotoInput("Side", side, setSide)}
-                            {renderPhotoInput("Back", back, setBack)}
-                        </>
-                    ) : (
-                        <Text style={{ color: "#f87171", marginTop: 8 }}>
-                            Upgrade to premium to edit photos
-                        </Text>
-                    )}
+                    <>
+                        {renderPhotoInput("Front", front, setFront)}
+                        {renderPhotoInput("Side", side, setSide)}
+                        {renderPhotoInput("Back", back, setBack)}
+                    </>
+
                 </View>
 
                 <TouchableOpacity style={styles.saveButton} onPress={handleSave} disabled={loading}>

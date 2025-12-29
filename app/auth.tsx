@@ -253,10 +253,20 @@ export default function AuthScreen() {
           style={{ marginTop: 20 }}
         >
           <Text style={styles.linkText}>
-            Don’t have an account?{" "}
+            Don't have an account?{" "}
             <Text style={{ color: "#fff", fontWeight: "600" }}>Sign Up</Text>
           </Text>
         </TouchableOpacity>
+
+        <TouchableOpacity
+          onPress={() => router.push("/forgot-password")}
+          style={{ marginTop: 20, alignSelf: "center" }}
+        >
+          <Text style={{ color: "#9ca3af", textDecorationLine: "underline"}}>
+            Forgot password?
+          </Text>
+        </TouchableOpacity>
+
       </View>
     </SafeAreaView>
   );
