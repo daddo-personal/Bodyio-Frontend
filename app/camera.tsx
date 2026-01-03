@@ -18,9 +18,10 @@ export default function CameraScreen() {
 
   // ----- HOOKS MUST BE FIRST -----
   const [permission, requestPermission] = useCameraPermissions();
-  const cameraRef = useRef(null);
+  const cameraRef = useRef<any>(null);
 
   const [timerEnabled, setTimerEnabled] = useState(true);
+  const [timerSeconds, setTimerSeconds] = useState<number>(10); // 👈 user-configurable timer
   const [countdown, setCountdown] = useState<number | null>(null);
   const [isTaking, setIsTaking] = useState(false);
 
@@ -28,6 +29,9 @@ export default function CameraScreen() {
   const toggleAnim = useRef(new Animated.Value(1)).current;
 
   const toggleTimer = () => {
+    // 🚫 Block toggling while countdown is running or photo is being taken
+    if (isTaking || countdown !== null) return;
+
     const newState = !timerEnabled;
     setTimerEnabled(newState);
 
@@ -49,7 +53,7 @@ export default function CameraScreen() {
   });
 
   // ----- AUDIO -----
-  const audioFiles = {
+  const audioFiles: { [key: number]: any } = {
     10: require("../assets/audio/10.mp3"),
     9: require("../assets/audio/9.mp3"),
     8: require("../assets/audio/8.mp3"),
@@ -64,7 +68,10 @@ export default function CameraScreen() {
 
   const playCountdownSound = async (num: number) => {
     try {
-      const { sound } = await Audio.Sound.createAsync(audioFiles[num], {
+      const file = audioFiles[num];
+      if (!file) return;
+
+      const { sound } = await Audio.Sound.createAsync(file, {
         shouldPlay: true,
       });
       await sound.playAsync();
@@ -78,17 +85,27 @@ export default function CameraScreen() {
   const startCountdown = () => {
     if (isTaking) return;
 
-    setIsTaking(true);
-    setCountdown(10);
+    const totalSeconds = timerSeconds || 0;
 
-    let seconds = 10;
+    // If somehow timer is 0, just take photo immediately
+    if (totalSeconds <= 0) {
+      takePhoto();
+      return;
+    }
+
+    setIsTaking(true);
+    setCountdown(totalSeconds);
+
+    let seconds = totalSeconds;
     playCountdownSound(seconds);
 
     const interval = setInterval(() => {
       seconds -= 1;
       setCountdown(seconds);
 
-      if (seconds > 0) playCountdownSound(seconds);
+      if (seconds > 0) {
+        playCountdownSound(seconds);
+      }
 
       if (seconds === 0) {
         clearInterval(interval);
@@ -106,7 +123,7 @@ export default function CameraScreen() {
       });
 
       await AsyncStorage.setItem("camera_return_photo", photo.uri);
-      await AsyncStorage.setItem("camera_return_label", label);
+      await AsyncStorage.setItem("camera_return_label", String(label));
 
       router.back();
     } catch (err) {
@@ -138,6 +155,8 @@ export default function CameraScreen() {
       </View>
     );
 
+  const timerDisabled = isTaking || countdown !== null;
+
   return (
     <View style={{ flex: 1, backgroundColor: "#000" }}>
       <CameraView ref={cameraRef} style={styles.camera} facing="back" />
@@ -149,19 +168,53 @@ export default function CameraScreen() {
         </View>
       )}
 
-      {/* TIMER TOGGLE */}
+      {/* TIMER TOGGLE + OPTIONS */}
       <View style={styles.toggleContainer}>
-        <TouchableOpacity onPress={toggleTimer} activeOpacity={0.7}>
-          <Animated.View style={[styles.togglePill, { backgroundColor: pillBackground }]}>
+        <TouchableOpacity
+          onPress={toggleTimer}
+          activeOpacity={0.7}
+          disabled={timerDisabled}
+        >
+          <Animated.View
+            style={[styles.togglePill, { backgroundColor: pillBackground }]}
+          >
             <Animated.View
-              style={[styles.toggleKnob, { transform: [{ translateX: knobPosition }] }]}
+              style={[
+                styles.toggleKnob,
+                { transform: [{ translateX: knobPosition }] },
+              ]}
             />
           </Animated.View>
         </TouchableOpacity>
 
         <Text style={styles.toggleLabel}>
-          {timerEnabled ? "Timer ON" : "Timer OFF"}
+          {timerEnabled ? `Timer ${timerSeconds}s` : "Timer OFF"}
         </Text>
+
+        {/* Timer preset buttons */}
+        <View style={styles.timerOptionsRow}>
+          {[3, 5, 10].map((sec) => (
+            <TouchableOpacity
+              key={sec}
+              disabled={timerDisabled}
+              onPress={() => setTimerSeconds(sec)}
+              style={[
+                styles.timerOption,
+                timerSeconds === sec && styles.timerOptionActive,
+                timerDisabled && { opacity: 0.5 },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.timerOptionText,
+                  timerSeconds === sec && styles.timerOptionTextActive,
+                ]}
+              >
+                {sec}s
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
       </View>
 
       {/* CAPTURE BUTTON */}
@@ -225,6 +278,32 @@ const styles = StyleSheet.create({
     marginTop: 6,
     fontSize: 12,
     fontWeight: "600",
+  },
+  timerOptionsRow: {
+    flexDirection: "row",
+    marginTop: 8,
+    backgroundColor: "#18181b",
+    borderRadius: 999,
+    paddingHorizontal: 6,
+    paddingVertical: 4,
+  },
+  timerOption: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+    marginHorizontal: 2,
+  },
+  timerOptionActive: {
+    backgroundColor: "#16a34a",
+  },
+  timerOptionText: {
+    color: "#e5e7eb",
+    fontSize: 12,
+    fontWeight: "500",
+  },
+  timerOptionTextActive: {
+    color: "#000",
+    fontWeight: "700",
   },
   captureContainer: {
     position: "absolute",
