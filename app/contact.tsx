@@ -117,15 +117,24 @@ export default function ContactScreen() {
             ]}
             onPress={() => setSelectedType("feedback")}
           >
-            <Text
-              style={[
-                styles.typeText,
-                selectedType === "feedback" && styles.typeTextActive,
-              ]}
-            >
-              💡 Feedback
-            </Text>
+            <View style={{ flexDirection: "row", alignItems: "center" }}>
+              <Ionicons
+                name="bulb-outline"
+                size={16}
+                color={selectedType === "feedback" ? "#000" : "#9ca3af"}
+                style={{ marginRight: 6 }}
+              />
+              <Text
+                style={[
+                  styles.typeText,
+                  selectedType === "feedback" && styles.typeTextActive,
+                ]}
+              >
+                Feedback
+              </Text>
+            </View>
           </TouchableOpacity>
+
 
           <TouchableOpacity
             style={[
