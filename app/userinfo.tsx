@@ -19,7 +19,8 @@ export default function UserInfo() {
 
   const [age, setAge] = useState("");
   const [weight, setWeight] = useState("");
-  const [height, setHeight] = useState("");
+  const [heightFeet, setHeightFeet] = useState("");
+  const [heightInches, setHeightInches] = useState("");
   const [ethnicity, setEthnicity] = useState("");
   const [sex, setSex] = useState<"male" | "female" | "other" | "">("");
 
@@ -97,7 +98,14 @@ export default function UserInfo() {
   );
 
   const handleSubmit = async () => {
-    if (!age || !weight || !height || !ethnicity || !sex) {
+    if (
+      !age ||
+      !weight ||
+      !heightFeet ||
+      heightInches === "" ||
+      !ethnicity ||
+      !sex
+    ) {
       Alert.alert("Missing info", "Please fill out all fields.");
       return;
     }
@@ -116,13 +124,28 @@ export default function UserInfo() {
       const finalWeight =
         unit === "kg" ? (parseFloat(weight) * 2.20462).toFixed(1) : weight;
 
+      const feet = parseInt(heightFeet, 10);
+      const inches = parseInt(heightInches, 10);
+
+      if (Number.isNaN(feet) || feet <= 0) {
+        Alert.alert("Height error", "Enter a valid height (feet).");
+        return;
+      }
+      if (Number.isNaN(inches) || inches < 0 || inches > 11) {
+        Alert.alert("Height error", "Inches must be between 0 and 11.");
+        return;
+      }
+
+      const totalHeightInches =
+       parseInt(heightFeet) * 12 + parseInt(heightInches); 
+
       const res = await fetch(`${API_URL}/users/${userID}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           age: parseInt(age),
           weight: parseFloat(finalWeight),
-          height: parseFloat(height),
+          height: totalHeightInches,
           ethnicity,
           sex,
         }),
@@ -172,15 +195,27 @@ export default function UserInfo() {
           style={styles.input}
         />
 
-        <Text style={styles.label}>Height (inches)</Text>
-        <TextInput
-          placeholder="Enter your height"
-          placeholderTextColor="#9ca3af"
-          value={height}
-          onChangeText={setHeight}
-          keyboardType="numeric"
-          style={styles.input}
-        />
+        <Text style={styles.label}>Height</Text>
+
+        <View style={{ flexDirection: "row", gap: 12, marginBottom: 16 }}>
+          <TextInput
+            placeholder="Feet"
+            placeholderTextColor="#9ca3af"
+            value={heightFeet}
+            onChangeText={setHeightFeet}
+            keyboardType="numeric"
+            style={[styles.input, { flex: 1 }]}
+          />
+
+          <TextInput
+            placeholder="Inches"
+            placeholderTextColor="#9ca3af"
+            value={heightInches}
+            onChangeText={setHeightInches}
+            keyboardType="numeric"
+            style={[styles.input, { flex: 1 }]}
+          />
+        </View>
 
         <Text style={styles.label}>Sex</Text>
         <View style={styles.optionContainer}>
