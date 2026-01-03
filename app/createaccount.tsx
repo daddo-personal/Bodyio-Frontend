@@ -4,52 +4,31 @@ import Constants from "expo-constants";
 import { useRouter } from "expo-router";
 import * as WebBrowser from "expo-web-browser";
 import React, { useEffect, useState } from "react";
+import { Alert, Image, Platform, SafeAreaView, ScrollView, Text, TextInput, TouchableOpacity } from "react-native";
+import { GoogleSignin } from "@react-native-google-signin/google-signin";
 import { registerForPushNotificationsAsync } from "../hooks/notifications";
 
-import {
-  Alert,
-  Image,
-  SafeAreaView,
-  ScrollView,
-  Text,
-  TextInput,
-  TouchableOpacity
-} from "react-native";
-
-const API_URL = Constants.expoConfig.extra.apiUrl;
+const API_URL = Constants.expoConfig?.extra?.apiUrl;
+const googleWebClientId = Constants.expoConfig?.extra?.googleWebClientId;
 
 WebBrowser.maybeCompleteAuthSession();
 
 export default function CreateAccount() {
   const router = useRouter();
+
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
   // -------------------------
-  // Google OAuth config
+  // iOS: expo-auth-session
   // -------------------------
   const [request, response, promptAsync] = Google.useAuthRequest({
-    iosClientId:
-      "974834514847-ia5odto5ftc4laovp6oc3q3ch44ghi8r.apps.googleusercontent.com",
+    iosClientId: "974834514847-ia5odto5ftc4laovp6oc3q3ch44ghi8r.apps.googleusercontent.com",
+    androidClientId: "974834514847-1b5l0g5aik74ma961e17jehv925o9brn.apps.googleusercontent.com",
     scopes: ["profile", "email"],
-    // If you also support Android/Web later:
-    // androidClientId: "...",
-    // webClientId: "...",
   });
-
-  useEffect(() => {
-    if (response?.type === "success") {
-      const { authentication } = response;
-      if (authentication?.accessToken) {
-        // 🔑 Send token to your backend
-        signupWithGoogleOnBackend(authentication.accessToken);
-      } else {
-        Alert.alert("Error", "No access token returned from Google.");
-      }
-    }
-  }, [response]);
 
   async function savePushTokenToBackend(userId: number, pushToken: string) {
     try {
@@ -64,48 +43,37 @@ export default function CreateAccount() {
     }
   }
 
-  // 2) Tell YOUR backend: “Here is a Google user, create/login them”
-  const signupWithGoogleOnBackend = async (accessToken: string) => {
-    try {
-      const res = await fetch(`${API_URL}/auth/google`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ access_token: accessToken }),
+  // -------------------------
+  // Android: native Google Sign-In
+  // -------------------------
+  useEffect(() => {
+    if (Platform.OS === "android") {
+      if (!googleWebClientId) {
+        console.warn("Missing extra.googleWebClientId in app.json");
+      }
+      GoogleSignin.configure({
+        webClientId: googleWebClientId, // ✅ must be WEB client id
+        offlineAccess: false,
       });
+    }
+  }, []);
 
-      const data = await res.json();
+  // Handle iOS Google response -> send access_token
+  useEffect(() => {
+    if (Platform.OS !== "ios") return;
 
-      if (!res.ok) {
-        console.error("Backend Google auth error:", data);
-        Alert.alert(
-          "Error",
-          data.detail || "Could not sign in with Google. Please try again."
-        );
+    if (response?.type === "success") {
+      const { authentication } = response;
+      if (!authentication?.accessToken) {
+        Alert.alert("Error", "No access token returned from Google.");
         return;
       }
-
-      await AsyncStorage.setItem("user", JSON.stringify(data));
-      // 🔔 Ask for push notification permission
-      const token = await registerForPushNotificationsAsync();
-      if (token) {
-        await savePushTokenToBackend(data.id, token);
-      }
-
-      const displayName =
-        data.first_name || data.last_name
-          ? `${data.first_name || ""} ${data.last_name || ""}`.trim()
-          : data.email || "there";
-
-      Alert.alert("✅ Account created!", `Welcome ${displayName}!`);
-      router.replace("/userinfo");
-    } catch (err) {
-      console.error("Google signup backend error", err);
-      Alert.alert("Network error", "Could not reach server. Please try again.");
+      signupWithGoogleIOS(authentication.accessToken);
     }
-  };
+  }, [response]);
 
   // -------------------------
-  // Classic email/password signup
+  // Email/Password signup (unchanged)
   // -------------------------
   const handleSignup = async () => {
     if (!firstName || !lastName || !email || !password) {
@@ -127,23 +95,117 @@ export default function CreateAccount() {
         return;
       }
 
-      await AsyncStorage.setItem("pendingUser", JSON.stringify({ email: email }));
+      await AsyncStorage.setItem("pendingUser", JSON.stringify({ email }));
       Alert.alert(
         "Verify your email",
         "We've sent a 6-digit code to your email. Enter it to complete signup."
       );
 
-      router.push({
-        pathname: "/verify-email",
-        params: { email: email },
-      });
-
+      router.push({ pathname: "/verify-email", params: { email } });
     } catch (error) {
       console.error("❌ Signup error", error);
       Alert.alert("Network error", "Please try again later.");
     }
   };
 
+  // -------------------------
+  // Google signup helpers
+  // -------------------------
+  const signupWithGoogleIOS = async (accessToken: string) => {
+    try {
+      const res = await fetch(`${API_URL}/auth/google`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ access_token: accessToken }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        if (res.status === 409) {
+          Alert.alert("Account exists", "That Google account already exists. Please log in.");
+          router.replace("/auth");
+          return;
+        }
+        Alert.alert("Error", data.detail || "Could not sign up with Google.");
+        return;
+      }
+
+      await AsyncStorage.setItem("user", JSON.stringify(data));
+      Alert.alert("✅ Account created!", `Welcome ${data.first_name || data.email}!`);
+      if (data.push_token == undefined) {
+        const token = await registerForPushNotificationsAsync();
+        console.log("Saving registering push notification")
+        console.log("New token is: ", token)
+        if (token) {
+          await savePushTokenToBackend(data.id, token);
+        }
+      }
+      router.replace("/userinfo");
+    } catch (e) {
+      console.error("Google signup error (iOS):", e);
+      Alert.alert("Network error", "Could not reach server. Please try again.");
+    }
+  };
+
+  const signupWithGoogleAndroid = async (idToken: string) => {
+    try {
+      const res = await fetch(`${API_URL}/auth/google`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id_token: idToken }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        if (res.status === 409) {
+          Alert.alert("Account exists", "That Google account already exists. Please log in.");
+          router.replace("/auth");
+          return;
+        }
+        Alert.alert("Error", data.detail || "Could not sign up with Google.");
+        return;
+      }
+
+      await AsyncStorage.setItem("user", JSON.stringify(data));
+      Alert.alert("✅ Account created!", `Welcome ${data.first_name || data.email}!`);
+      if (data.push_token == undefined) {
+        const token = await registerForPushNotificationsAsync();
+        console.log("Saving registering push notification")
+        console.log("New token is: ", token)
+        if (token) {
+          await savePushTokenToBackend(data.id, token);
+        }
+      }
+      router.replace("/userinfo");
+    } catch (e) {
+      console.error("Google signup error (Android):", e);
+      Alert.alert("Network error", "Could not reach server. Please try again.");
+    }
+  };
+
+  const signUpWithGoogleAndroidNative = async () => {
+    try {
+      await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+      const result = await GoogleSignin.signIn();
+
+      const idToken = (result as any)?.data?.idToken ?? (result as any)?.idToken;
+      if (!idToken) {
+        Alert.alert("Error", "No ID token returned from Google.");
+        return;
+      }
+
+      await signupWithGoogleAndroid(idToken);
+    } catch (e: any) {
+      console.log("Native Google sign-up error:", e);
+      Alert.alert("Google Sign-Up failed", e?.message || "Please try again.");
+    }
+  };
+
+  // -------------------------
+  // UI
+  // -------------------------
   return (
     <SafeAreaView style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.container}>
@@ -181,7 +243,7 @@ export default function CreateAccount() {
           style={styles.input}
         />
 
-        {/* ✅ Sign Up with email/password */}
+        {/* Email/password */}
         <TouchableOpacity
           onPress={handleSignup}
           style={[styles.button, { backgroundColor: "#fff", marginTop: 8 }]}
@@ -189,10 +251,17 @@ export default function CreateAccount() {
           <Text style={[styles.buttonText, { color: "#000" }]}>Sign Up</Text>
         </TouchableOpacity>
 
-        {/* ✅ Google Sign-Up / Sign-In */}
+        {/* Google */}
         <TouchableOpacity
-          disabled={!request}
-          onPress={() => promptAsync()}
+          disabled={Platform.OS === "ios" ? !request : false}
+          onPress={() => {
+            if (Platform.OS === "android") {
+              signUpWithGoogleAndroidNative();
+            } else {
+              // iOS: keep browser flow
+              promptAsync({ useProxy: false });
+            }
+          }}
           style={[
             styles.button,
             {
@@ -200,14 +269,12 @@ export default function CreateAccount() {
               flexDirection: "row",
               marginTop: 12,
               justifyContent: "center",
-              opacity: request ? 1 : 0.6,
+              opacity: Platform.OS === "ios" && !request ? 0.6 : 1,
             },
           ]}
         >
           <Image
-            source={{
-              uri: "https://developers.google.com/identity/images/g-logo.png",
-            }}
+            source={{ uri: "https://developers.google.com/identity/images/g-logo.png" }}
             style={{
               width: 20,
               height: 20,
@@ -219,14 +286,10 @@ export default function CreateAccount() {
           <Text style={styles.buttonText}>Continue with Google</Text>
         </TouchableOpacity>
 
-        {/* ✅ Already have account */}
-        <TouchableOpacity
-          onPress={() => router.push("/auth")}
-          style={{ marginTop: 16 }}
-        >
+        {/* Already have account */}
+        <TouchableOpacity onPress={() => router.push("/auth")} style={{ marginTop: 16 }}>
           <Text style={styles.linkText}>
-            Already have an account?{" "}
-            <Text style={styles.linkHighlight}>Log in</Text>
+            Already have an account? <Text style={styles.linkHighlight}>Log in</Text>
           </Text>
         </TouchableOpacity>
       </ScrollView>
@@ -235,15 +298,8 @@ export default function CreateAccount() {
 }
 
 const styles: any = {
-  safeArea: {
-    flex: 1,
-    backgroundColor: "#1f1f1f",
-  },
-  container: {
-    flexGrow: 1,
-    padding: 24,
-    justifyContent: "center",
-  },
+  safeArea: { flex: 1, backgroundColor: "#1f1f1f" },
+  container: { flexGrow: 1, padding: 24, justifyContent: "center" },
   title: {
     fontSize: 24,
     fontWeight: "700",
@@ -260,23 +316,8 @@ const styles: any = {
     color: "#fff",
     backgroundColor: "#2c2c2c",
   },
-  button: {
-    borderRadius: 8,
-    paddingVertical: 12,
-    alignItems: "center",
-  },
-  buttonText: {
-    fontWeight: "600",
-    color: "#fff",
-    fontSize: 16,
-  },
-  linkText: {
-    textAlign: "center",
-    color: "#d1d5db",
-    fontSize: 14,
-  },
-  linkHighlight: {
-    color: "#ffffff",
-    fontWeight: "600",
-  },
+  button: { borderRadius: 8, paddingVertical: 12, alignItems: "center" },
+  buttonText: { fontWeight: "600", color: "#fff", fontSize: 16 },
+  linkText: { textAlign: "center", color: "#d1d5db", fontSize: 14 },
+  linkHighlight: { color: "#ffffff", fontWeight: "600" },
 };
