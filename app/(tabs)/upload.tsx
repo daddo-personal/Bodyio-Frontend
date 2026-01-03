@@ -115,7 +115,6 @@ export default function UploadScreen() {
           position: "relative",
         }}
       >
-
         {/* Sliding Circle */}
         <View
           style={{
@@ -171,7 +170,6 @@ export default function UploadScreen() {
     );
   };
 
-
   const toggleUnit = async () => {
     if (weight) {
       let converted = "";
@@ -196,7 +194,6 @@ export default function UploadScreen() {
       await AsyncStorage.setItem("weight_unit", newUnit);
     }
   };
-
 
   const showToast = (message: string, duration = 1500) => {
     setToastMessage(message);
@@ -223,8 +220,8 @@ export default function UploadScreen() {
       if (!saved) return;
       const parsed = JSON.parse(saved);
       setUser(parsed);
-      setUserId(parsed.id.toString());
-      setHeight(parsed.height);
+      setUserId(parsed.id?.toString?.() ?? "");
+      setHeight(parsed.height ?? "");
     };
     loadUser();
   }, []);
@@ -234,20 +231,54 @@ export default function UploadScreen() {
     setShowPicker(false);
   };
 
+  // ✅ Turns FastAPI detail objects/arrays into readable text (prevents [object Object])
+  const safeErrorMessage = (detail: any) => {
+    if (!detail) return "Request failed. Please try again.";
+
+    // FastAPI validation error shape: [{ loc, msg, type }, ...]
+    if (Array.isArray(detail)) {
+      const msgs = detail
+        .map((e) => (typeof e?.msg === "string" ? e.msg : null))
+        .filter(Boolean);
+      if (msgs.length) return msgs.join("\n");
+      try {
+        return JSON.stringify(detail);
+      } catch {
+        return "Request failed. Please try again.";
+      }
+    }
+
+    if (typeof detail === "object") {
+      if (typeof detail.message === "string") return detail.message;
+      try {
+        return JSON.stringify(detail);
+      } catch {
+        return "Request failed. Please try again.";
+      }
+    }
+
+    return String(detail);
+  };
+
   const validateSinglePose = async (label: string, uri: string) => {
     try {
       const formData = new FormData();
       formData.append("photo", { uri, name: `${label}.jpg`, type: "image/jpeg" } as any);
 
       const res = await fetch(`${API_URL}/validate_pose`, { method: "POST", body: formData });
-      const data = await res.json();
+
+      const raw = await res.text();
+      let data: any = null;
+      try {
+        data = raw ? JSON.parse(raw) : null;
+      } catch {
+        data = null;
+      }
 
       if (!res.ok) {
         Alert.alert(
           "Pose Invalid",
-          typeof data.detail === "string"
-            ? data.detail
-            : data.detail?.join("\n") || `Your ${label} photo didn’t pass validation.`
+          safeErrorMessage(data?.detail ?? data ?? raw) || `Your ${label} photo didn’t pass validation.`
         );
         setValidated((prev) => ({ ...prev, [label]: false }));
         return false;
@@ -289,7 +320,6 @@ export default function UploadScreen() {
     });
   };
 
-
   const chooseImageSource = (setter: (v: string) => void, label: string) => {
     Alert.alert("Select Option", `Choose your ${label} photo:`, [
       { text: "Take Photo", onPress: () => takePhoto(setter, label) },
@@ -299,6 +329,12 @@ export default function UploadScreen() {
   };
 
   const handleSave = async () => {
+    // ✅ Prevent race where userId hasn't loaded yet (common intermittent 422s)
+    if (!userId) {
+      Alert.alert("Please wait", "Loading your profile… try again in a second.");
+      return;
+    }
+
     if (!weight) {
       Alert.alert("Missing Fields", "Please enter a valid weight.");
       return;
@@ -307,7 +343,7 @@ export default function UploadScreen() {
     // Validate only photos that the user actually provided
     const photosToValidate = { front, side, back };
     const invalidUploaded = Object.keys(photosToValidate).some(
-      (key) => photosToValidate[key] && !validated[key]
+      (key) => (photosToValidate as any)[key] && !validated[key]
     );
 
     if (invalidUploaded) {
@@ -360,9 +396,33 @@ export default function UploadScreen() {
         body: formData,
       });
 
+      // ✅ Read raw first so json() can't throw and hide the real error
+      const raw = await res.text();
+      let payload: any = null;
+      try {
+        payload = raw ? JSON.parse(raw) : null;
+      } catch {
+        payload = null;
+      }
+
       if (!res.ok) {
-        const errorData = await res.json();
-        throw new Error(errorData.detail);
+        const msg = safeErrorMessage(payload?.detail ?? payload ?? raw);
+
+        console.log("METRICS UPLOAD FAILED", {
+          status: res.status,
+          raw,
+          payload,
+          userId,
+          height,
+          unit,
+          finalWeight,
+          hasFront: !!front,
+          hasSide: !!side,
+          hasBack: !!back,
+        });
+
+        Alert.alert("Upload failed", msg);
+        return; // ✅ IMPORTANT: don't navigate away on failure
       }
 
       showToast("✅ Metric uploaded successfully!");
@@ -370,7 +430,7 @@ export default function UploadScreen() {
 
       // Reset UI
       setWeight("");
-      setUnit(await AsyncStorage.getItem("weight_unit") || "lbs");
+      setUnit((await AsyncStorage.getItem("weight_unit")) || "lbs");
       setDate(new Date());
       setFront(null);
       setSide(null);
@@ -381,9 +441,19 @@ export default function UploadScreen() {
       setTimeout(() => {
         router.push("/(tabs)/dashboard");
       }, 600);
-    } catch (err) {
-      Alert.alert(err.message);
-      router.push("/(tabs)/settings");
+    } catch (err: any) {
+      console.log("NETWORK/JS ERROR", err);
+
+      const msg =
+        typeof err?.message === "string"
+          ? err.message
+          : typeof err === "string"
+          ? err
+          : "Network error. Please try again.";
+
+      Alert.alert("Error", msg);
+      // ✅ removed: router.push("/(tabs)/settings");
+      // Redirecting on error makes debugging feel random and hides the real problem.
     } finally {
       setLoading(false);
     }
@@ -438,34 +508,27 @@ export default function UploadScreen() {
         {uri && (
           <TouchableOpacity
             onPress={() =>
-              Alert.alert(
-                "Remove photo?",
-                `Clear your ${label.toLowerCase()} photo?`,
-                [
-                  { text: "Cancel", style: "cancel" },
-                  { text: "Clear", style: "destructive", onPress: () => clearPhoto(key) },
-                ]
-              )
+              Alert.alert("Remove photo?", `Clear your ${label.toLowerCase()} photo?`, [
+                { text: "Cancel", style: "cancel" },
+                { text: "Clear", style: "destructive", onPress: () => clearPhoto(key) },
+              ])
             }
             style={{
               marginTop: 6,
             }}
           >
-            <Text style={{ color: "#f87171", fontWeight: "600" }}>
-              Clear {label} Photo
-            </Text>
+            <Text style={{ color: "#f87171", fontWeight: "600" }}>Clear {label} Photo</Text>
           </TouchableOpacity>
         )}
       </View>
     );
   };
 
-
   return (
     <SafeAreaView style={styles.safeArea}>
       {/* 🆕 TOOLTIP BUTTON — REOPEN ONBOARDING */}
       <TouchableOpacity
-        onPress={() => router.push("/onboarding")}   // ← ADDED
+        onPress={() => router.push("/onboarding")} // ← ADDED
         style={{
           position: "absolute",
           top: 12,
@@ -488,9 +551,7 @@ export default function UploadScreen() {
         <View style={styles.card}>
           <Text style={styles.label}>Date</Text>
           <View style={[styles.input, { justifyContent: "center" }]}>
-            <Text style={{ color: "#fff", textAlign: "center" }}>
-              {date.toDateString()}
-            </Text>
+            <Text style={{ color: "#fff", textAlign: "center" }}>{date.toDateString()}</Text>
           </View>
 
           <Text style={styles.label}>Weight ({unit})</Text>
@@ -540,7 +601,6 @@ export default function UploadScreen() {
           <Text style={{ color: "#fff", fontWeight: "600" }}>{toastMessage}</Text>
         </View>
       </Animated.View>
-
     </SafeAreaView>
   );
 }
@@ -548,24 +608,57 @@ export default function UploadScreen() {
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: "#1f1f1f" },
   container: { padding: 20, flexGrow: 1 },
-  card: { backgroundColor: "#2c2c2c", borderRadius: 12, padding: 16, marginBottom: 20, alignItems: "center" },
-  title: { color: "#fff", fontSize: 20, fontWeight: "700", textAlign: "center", marginBottom: 20 },
+  card: {
+    backgroundColor: "#2c2c2c",
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 20,
+    alignItems: "center",
+  },
+  title: {
+    color: "#fff",
+    fontSize: 20,
+    fontWeight: "700",
+    textAlign: "center",
+    marginBottom: 20,
+  },
   label: { color: "#d1d5db", marginBottom: 6, fontWeight: "600" },
   input: {
     backgroundColor: "#1f1f1f",
     color: "#fff",
     paddingHorizontal: 12,
     paddingVertical: 10,
-    height: 44,          // 👈 enforce consistent height
+    height: 44, // 👈 enforce consistent height
     borderRadius: 8,
     width: "100%",
     marginBottom: 20,
-    textAlign: "left",   // 👈 prevents visual drift
-  }, button: { borderRadius: 8, paddingVertical: 12, paddingHorizontal: 20, marginTop: 8, alignItems: "center", width: 200 },
+    textAlign: "left", // 👈 prevents visual drift
+  },
+  button: {
+    borderRadius: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    marginTop: 8,
+    alignItems: "center",
+    width: 200,
+  },
   buttonText: { fontWeight: "600", fontSize: 16 },
   preview: { width: 160, height: 200, borderRadius: 8, marginBottom: 8 },
   placeholder: { color: "#9ca3af", marginBottom: 8 },
-  checkmark: { position: "absolute", top: 8, right: 8, backgroundColor: "#16a34a", borderRadius: 12, padding: 2 },
-  saveButton: { backgroundColor: "#fff", paddingVertical: 14, borderRadius: 8, alignItems: "center", marginTop: 10 },
+  checkmark: {
+    position: "absolute",
+    top: 8,
+    right: 8,
+    backgroundColor: "#16a34a",
+    borderRadius: 12,
+    padding: 2,
+  },
+  saveButton: {
+    backgroundColor: "#fff",
+    paddingVertical: 14,
+    borderRadius: 8,
+    alignItems: "center",
+    marginTop: 10,
+  },
   saveButtonText: { color: "#000", fontWeight: "600", fontSize: 16 },
 });
