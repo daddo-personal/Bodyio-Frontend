@@ -36,7 +36,8 @@ export default function SettingsScreen() {
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [height, setHeight] = useState("");
+  const [heightFeet, setHeightFeet] = useState("");
+  const [heightInches, setHeightInches] = useState("");
   const [weight, setWeight] = useState("");
   const [customerInfo, setCustomerInfo] = useState<any>(null);
 
@@ -81,7 +82,16 @@ export default function SettingsScreen() {
             setFirstName(data.first_name || "");
             setLastName(data.last_name || "");
             setEmail(data.email || "");
-            setHeight(data.height?.toString() || "");
+            const h = Number(data.height);
+            if (!Number.isNaN(h) && h > 0) {
+              const ft = Math.floor(h / 12);
+              const inch = h % 12;
+              setHeightFeet(String(ft));
+              setHeightInches(String(inch));
+            } else {
+              setHeightFeet("");
+              setHeightInches("");
+            }
             setWeight(data.weight?.toString() || "");
 
             await AsyncStorage.setItem("user", JSON.stringify(data));
@@ -263,6 +273,22 @@ export default function SettingsScreen() {
     }
 
     try {
+
+      const feet = parseInt(heightFeet, 10);
+      const inches = parseInt(heightInches, 10);
+
+      if (Number.isNaN(feet) || feet <= 0) {
+        Alert.alert("Height error", "Enter a valid height (feet).");
+        return;
+      }
+      if (Number.isNaN(inches) || inches < 0 || inches > 11) {
+        Alert.alert("Height error", "Inches must be between 0 and 11.");
+        return;
+      }
+
+      const totalHeightInches =
+       parseInt(heightFeet) * 12 + parseInt(heightInches);
+
       const res = await fetch(`${API_URL}/users/${user.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -271,7 +297,7 @@ export default function SettingsScreen() {
           last_name: lastName,
           email,
           password: password,
-          height: parseFloat(height),
+          height: totalHeightInches,
           weight: parseFloat(weight),
         }),
       });
@@ -540,16 +566,29 @@ export default function SettingsScreen() {
             style={styles.input}
           />
 
-          <Text style={styles.label}>Height (inches)</Text>
-          <TextInput
-            value={height}
-            onChangeText={setHeight}
-            editable={editing}
-            placeholder="Height (inches)"
-            placeholderTextColor="#9ca3af"
-            keyboardType="numeric"
-            style={styles.input}
-          />
+<Text style={styles.label}>Height</Text>
+
+<View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 12 }}>
+  <TextInput
+    value={heightFeet}
+    onChangeText={setHeightFeet}
+    editable={editing}
+    placeholder="Feet"
+    placeholderTextColor="#9ca3af"
+    keyboardType="numeric"
+    style={[styles.input, { width: "48%" }]}
+  />
+  <TextInput
+    value={heightInches}
+    onChangeText={setHeightInches}
+    editable={editing}
+    placeholder="Inches"
+    placeholderTextColor="#9ca3af"
+    keyboardType="numeric"
+    style={[styles.input, { width: "48%" }]}
+  />
+</View>
+
 
           {!editing ? (
             <TouchableOpacity
