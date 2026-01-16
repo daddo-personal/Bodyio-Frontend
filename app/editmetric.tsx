@@ -185,26 +185,16 @@ export default function EditMetricScreen() {
     // POSE VALIDATION
     // ----------------------------------------------------
     const validateSinglePose = async (label, uri) => {
+        setUploading((prev) => ({ ...prev, [label]: true }));
         try {
             const formData = new FormData();
-            formData.append("photo", {
-                uri,
-                name: `${label}.jpg`,
-                type: "image/jpeg",
-            });
+            formData.append("photo", { uri, name: `${label}.jpg`, type: "image/jpeg" });
 
-            const res = await fetch(`${API_URL}/validate_pose`, {
-                method: "POST",
-                body: formData,
-            });
-
+            const res = await fetch(`${API_URL}/validate_pose`, { method: "POST", body: formData });
             const data = await res.json();
 
             if (!res.ok) {
-                Alert.alert(
-                    "Pose Invalid",
-                    data.detail?.join("\n") || data.detail || "Invalid pose"
-                );
+                Alert.alert("Pose Invalid", data.detail?.join?.("\n") || data.detail || "Invalid pose");
                 setValidated((prev) => ({ ...prev, [label]: false }));
                 return false;
             }
@@ -214,6 +204,8 @@ export default function EditMetricScreen() {
         } catch {
             Alert.alert("Error", "Could not validate pose");
             return false;
+        } finally {
+            setUploading((prev) => ({ ...prev, [label]: false }));
         }
     };
 
@@ -326,13 +318,24 @@ export default function EditMetricScreen() {
         setter: (v: string) => void
     ) => {
         const key = label.toLowerCase() as "front" | "side" | "back";
+        const isUploading = !!uploading[key]; // ✅ ADD
 
         return (
             <View style={{ marginBottom: 20, alignItems: "center" }}>
                 <Text style={styles.label}>{label} Photo</Text>
 
+                {/* ✅ PREVIEW + OVERLAY SPINNER */}
                 {uri ? (
-                    <Image source={{ uri }} style={styles.preview} />
+                    <View style={{ position: "relative" }}>
+                        <Image source={{ uri }} style={styles.preview} />
+
+                        {isUploading && (
+                            <View style={styles.photoSpinnerOverlay}>
+                                <ActivityIndicator size="large" color="#fff" />
+                                <Text style={styles.photoSpinnerText}>Processing…</Text>
+                            </View>
+                        )}
+                    </View>
                 ) : (
                     <Text style={styles.placeholder}>No photo uploaded</Text>
                 )}
@@ -344,11 +347,11 @@ export default function EditMetricScreen() {
                 )}
 
                 <TouchableOpacity
-                    style={[styles.button, { backgroundColor: "#fff" }]}
-                    onPress={() => chooseImageSource(setter, key)}
-                    disabled={uploading[key]}
+                    style={[styles.button, { backgroundColor: "#fff", opacity: isUploading ? 0.6 : 1 }]}
+                    onPress={() => !isUploading && chooseImageSource(setter, key)}
+                    disabled={isUploading}
                 >
-                    {uploading[key] ? (
+                    {isUploading ? (
                         <ActivityIndicator color="#000" />
                     ) : (
                         <Text style={[styles.buttonText, { color: "#000" }]}>
@@ -357,31 +360,23 @@ export default function EditMetricScreen() {
                     )}
                 </TouchableOpacity>
 
-                {/* ✅ Clear option */}
                 {uri && (
                     <TouchableOpacity
                         onPress={() =>
-                            Alert.alert(
-                                "Remove photo?",
-                                `Clear your ${key} photo?`,
-                                [
-                                    { text: "Cancel", style: "cancel" },
-                                    { text: "Clear", style: "destructive", onPress: () => clearPhoto(key) },
-                                ]
-                            )
+                            Alert.alert("Remove photo?", `Clear your ${key} photo?`, [
+                                { text: "Cancel", style: "cancel" },
+                                { text: "Clear", style: "destructive", onPress: () => clearPhoto(key) },
+                            ])
                         }
-                        style={{ marginTop: 6 }}
-                        disabled={uploading[key]}
+                        style={{ marginTop: 6, opacity: isUploading ? 0.6 : 1 }}
+                        disabled={isUploading}
                     >
-                        <Text style={{ color: "#f87171", fontWeight: "600" }}>
-                            Clear {label} Photo
-                        </Text>
+                        <Text style={{ color: "#f87171", fontWeight: "600" }}>Clear {label} Photo</Text>
                     </TouchableOpacity>
                 )}
             </View>
         );
     };
-
 
     return (
         <SafeAreaView style={styles.safeArea}>
@@ -542,5 +537,22 @@ const styles = StyleSheet.create({
         color: "#000",
         fontWeight: "600",
         fontSize: 16,
+    },
+    photoSpinnerOverlay: {
+        position: "absolute",
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        borderRadius: 8,
+        backgroundColor: "rgba(0,0,0,0.55)",
+        alignItems: "center",
+        justifyContent: "center",
+    },
+
+    photoSpinnerText: {
+        marginTop: 10,
+        color: "#fff",
+        fontWeight: "800",
     },
 });

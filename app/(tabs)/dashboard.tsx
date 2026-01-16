@@ -573,15 +573,6 @@ export default function DashboardScreen() {
             <View style={styles.recentCard}>
               <Text style={styles.recentTitle}>🧾 Your Recent Scan Results</Text>
 
-              <TouchableOpacity
-                onPress={openVerifyModal}
-                activeOpacity={0.85}
-                style={styles.infoPillBelow}
-              >
-                <Ionicons name="information-circle" size={16} color="#fff" />
-                <Text style={styles.infoPillText}>Is this information inaccurate?</Text>
-              </TouchableOpacity>
-
 
               <View style={styles.metricsGrid}>
                 {METRICS.map((m) => {
@@ -637,6 +628,15 @@ export default function DashboardScreen() {
                     </TouchableOpacity>
                   );
                 })}
+
+                <TouchableOpacity
+                  onPress={openVerifyModal}
+                  activeOpacity={0.85}
+                  style={styles.infoPillBelow}
+                >
+                  <Ionicons name="information-circle" size={16} color="#fff" />
+                  <Text style={styles.infoPillText}>Is this information inaccurate?</Text>
+                </TouchableOpacity>
               </View>
             </View>
           </Animated.View>
@@ -659,11 +659,10 @@ export default function DashboardScreen() {
 
             <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined}>
               <View style={styles.tooltipModal}>
-                <View style={styles.sheetGrabber} />
 
                 <Text style={styles.sheetTitle}>Verify / Update your scan</Text>
                 <Text style={styles.sheetText}>
-                  If your scan looks off, enter your verified Fat % and Muscle % below.
+                  BodyIO estimates your metrics using your photos, height, and weight. Lighting, pose, and camera angle can sometimes affect accuracy. If your scan looks off, you can enter your verified Body Fat % and Muscle % below.
                 </Text>
 
                 {/* Method chips */}
@@ -1166,19 +1165,24 @@ const styles = StyleSheet.create({
   // ✅ Bottom-sheet modal styles
   sheetOverlay: {
     flex: 1,
-    justifyContent: "flex-end",
+    justifyContent: "center",
+    alignItems: "center",
     backgroundColor: "rgba(0,0,0,0.55)",
+    padding: 16,
   },
 
   tooltipModal: {
     backgroundColor: "#2c2c2c",
     paddingHorizontal: 18,
-    paddingTop: 10,
+    paddingTop: 14,
     paddingBottom: 18,
-    borderTopLeftRadius: 18,
-    borderTopRightRadius: 18,
+    borderRadius: 18,
     width: "100%",
+    maxWidth: 420,
+    borderWidth: 1,
+    borderColor: "#3b3b3b",
   },
+
 
   sheetGrabber: {
     alignSelf: "center",
@@ -1306,42 +1310,3 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
 });
-
-/*
-========================================
-BACKEND PATCH (required for this to work)
-========================================
-
-In your FastAPI endpoint:
-
-@app.put("/metrics/{metric_id}", status_code=200)
-async def update_metric(
-    metric_id: int,
-    weight: Optional[float] = Form(None),
-    taken_at: Optional[str] = Form(None),
-    photo_back: Optional[UploadFile] = None,
-    photo_front: Optional[UploadFile] = None,
-    photo_side: Optional[UploadFile] = None
-
-ADD THESE OPTIONAL FIELDS:
-    fat_percent: Optional[float] = Form(None),
-    skeletal_muscle_percent: Optional[float] = Form(None),
-    verified_method: Optional[str] = Form(None),
-
-Then inside update_metric, BEFORE "if all_preds:" block,
-apply manual override if provided (and skip inference override unless photos given):
-
-    if fat_percent is not None:
-        metric.fat_percent = float(fat_percent)
-
-    if skeletal_muscle_percent is not None:
-        metric.skeletal_muscle_percent = float(skeletal_muscle_percent)
-
-    if fat_percent is not None and (weight or metric.weight):
-        metric.fat_mass = (float(fat_percent) / 100.0) * float(weight or metric.weight)
-
-    if skeletal_muscle_percent is not None and (weight or metric.weight):
-        metric.skeletal_muscle_pounds = (float(skeletal_muscle_percent) / 100.0) * float(weight or metric.weight)
-
-Optionally persist method (add columns) or ignore.
-*/

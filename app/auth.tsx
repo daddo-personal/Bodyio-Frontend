@@ -6,6 +6,7 @@ import * as WebBrowser from "expo-web-browser";
 import React, { useEffect, useState } from "react";
 import { registerForPushNotificationsAsync } from "../hooks/notifications";
 import { GoogleSignin } from "@react-native-google-signin/google-signin";
+import * as AppleAuthentication from "expo-apple-authentication";
 
 import {
   Alert,
@@ -78,27 +79,80 @@ export default function AuthScreen() {
     }
   }, [response, googleLoginRequested]);
 
-  const signInWithGoogleAndroidNative = async () => {
-  try {
-    await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+  const loginWithAppleOnBackend = async (
+    identityToken: string,
+    firstName?: string,
+    lastName?: string,
+    email?: string
+  ) => {
+    try {
+      const res = await fetch(`${API_URL}/login/apple`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          identity_token: identityToken,
+          first_name: firstName,
+          last_name: lastName,
+          email,
+        }),
+      });
 
-    const result = await GoogleSignin.signIn();
-    const idToken = result?.data?.idToken ?? result?.idToken;
-    console.log("Token is: ", idToken)
-    if (!idToken) {
-      Alert.alert("Error", "No ID token returned from Google.");
-      return;
+      const data = await res.json();
+
+      if (!res.ok) {
+        console.error("Backend Apple auth error:", data);
+        Alert.alert("Error", data.detail || "Could not sign in with Apple.");
+        return;
+      }
+
+      await AsyncStorage.setItem("user", JSON.stringify(data));
+
+      // RevenueCat
+      try {
+        await Purchases.logIn(String(data.id));
+      } catch (e) {
+        console.log("RevenueCat logIn error (apple):", e);
+      }
+
+      // Push token
+      if (!data.push_token) {
+        const token = await registerForPushNotificationsAsync();
+        if (token) await savePushTokenToBackend(data.id, token);
+      }
+
+      // If you want: route based on profile completeness
+      const needsProfile =
+        data.age == null || data.height == null || data.weight == null || !data.sex;
+
+      router.replace(needsProfile ? "/userinfo" : "/(tabs)/home");
+    } catch (err) {
+      console.error("Apple auth backend error", err);
+      Alert.alert("Network error", "Could not reach server. Please try again.");
     }
+  };
 
-    // ✅ your backend already accepts { id_token: ... }
-    await loginWithGoogleOnBackendAndroid(idToken);
-  } catch (e: any) {
-    console.log("Native Google sign-in error:", e);
 
-    // Optional: nicer messages
-    Alert.alert("Google Sign-In failed", e?.message || "Please try again.");
-  }
-};
+  const signInWithGoogleAndroidNative = async () => {
+    try {
+      await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+
+      const result = await GoogleSignin.signIn();
+      const idToken = result?.data?.idToken ?? result?.idToken;
+      console.log("Token is: ", idToken)
+      if (!idToken) {
+        Alert.alert("Error", "No ID token returned from Google.");
+        return;
+      }
+
+      // ✅ your backend already accepts { id_token: ... }
+      await loginWithGoogleOnBackendAndroid(idToken);
+    } catch (e: any) {
+      console.log("Native Google sign-in error:", e);
+
+      // Optional: nicer messages
+      Alert.alert("Google Sign-In failed", e?.message || "Please try again.");
+    }
+  };
 
   async function savePushTokenToBackend(userId: number, pushToken: string) {
     try {
@@ -153,7 +207,7 @@ export default function AuthScreen() {
 
         // 3. Redirect
         router.replace("/(tabs)/home");
-      } 
+      }
       else if (res.status === 403) {
         await AsyncStorage.setItem("pendingUser", JSON.stringify({ email: email }));
         const res = await fetch(`${API_URL}/auth/resend-code`, {
@@ -163,13 +217,13 @@ export default function AuthScreen() {
         });
 
         if (res.ok) {
-        router.push({
-        pathname: "/verify-email",
-        params: { email: email },
-      });
-    }
+          router.push({
+            pathname: "/verify-email",
+            params: { email: email },
+          });
+        }
       }
-      
+
       else {
         Alert.alert("Login failed", data.detail || "Invalid credentials");
 
@@ -181,134 +235,95 @@ export default function AuthScreen() {
   };
 
   // iOS (expo-auth-session) => access_token
-const loginWithGoogleOnBackendIOS = async (accessToken: string) => {
-  try {
-    const res = await fetch(`${API_URL}/login/google`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ access_token: accessToken }),
-    });
-
-    const data = await res.json();
-    setGoogleLoginRequested(false);
-
-    if (!res.ok) {
-      console.error("Backend Google login error (iOS):", data);
-      Alert.alert("Error", data.detail || "Could not sign in with Google.");
-      return;
-    }
-
-    await AsyncStorage.setItem("user", JSON.stringify(data));
-
+  const loginWithGoogleOnBackendIOS = async (accessToken: string) => {
     try {
-      await Purchases.logIn(String(data.id));
-    } catch (e) {
-      console.log("RevenueCat logIn error (google iOS):", e);
-    }
+      const res = await fetch(`${API_URL}/auth/google`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ access_token: accessToken }),
+      });
 
-    router.replace("/(tabs)/home");
-    // 📌 Check for push_token, if not registerForPushNotification
-    if (!data.push_token) {
-      const token = await registerForPushNotificationsAsync();
-      if (token) {
-        await savePushTokenToBackend(data.id, token);
+      const data = await res.json();
+      setGoogleLoginRequested(false);
+
+      if (!res.ok) {
+        console.error("Backend Google login error (iOS):", data);
+        Alert.alert("Error", data.detail || "Could not sign in with Google.");
+        return;
       }
+
+      await AsyncStorage.setItem("user", JSON.stringify(data));
+
+      try {
+        await Purchases.logIn(String(data.id));
+      } catch (e) {
+        console.log("RevenueCat logIn error (google iOS):", e);
+      }
+
+      const needsProfile =
+        data.age == null || data.height == null || data.weight == null || !data.sex;
+
+      router.replace(needsProfile ? "/userinfo" : "/(tabs)/home");
+      // 📌 Check for push_token, if not registerForPushNotification
+      if (!data.push_token) {
+        const token = await registerForPushNotificationsAsync();
+        if (token) {
+          await savePushTokenToBackend(data.id, token);
+        }
+      }
+
+    } catch (err) {
+      console.error("Google login backend error (iOS)", err);
+      setGoogleLoginRequested(false);
+      Alert.alert("Network error", "Could not reach server. Please try again.");
     }
-    
-  } catch (err) {
-    console.error("Google login backend error (iOS)", err);
-    setGoogleLoginRequested(false);
-    Alert.alert("Network error", "Could not reach server. Please try again.");
-  }
-};
+  };
 
-// Android (native GoogleSignin) => id_token
-const loginWithGoogleOnBackendAndroid = async (idToken: string) => {
-  try {
-    const res = await fetch(`${API_URL}/login/google`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id_token: idToken }),
-    });
-
-    const data = await res.json();
-
-    if (!res.ok) {
-      console.error("Backend Google login error (Android):", data);
-      Alert.alert("Error", data.detail || "Could not sign in with Google.");
-      return;
-    }
-
-    await AsyncStorage.setItem("user", JSON.stringify(data));
-
+  // Android (native GoogleSignin) => id_token
+  const loginWithGoogleOnBackendAndroid = async (idToken: string) => {
     try {
-      await Purchases.logIn(String(data.id));
-    } catch (e) {
-      console.log("RevenueCat logIn error (google Android):", e);
-    }
+      const res = await fetch(`${API_URL}/auth/google`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id_token: idToken }),
+      });
 
-    router.replace("/(tabs)/home");
-    // 📌 Check for push_token, if not registerForPushNotification
-    console.log("DKA 1")
-    console.log("push token: ", data.push_token)
-    if (data.push_token == undefined) {
-      const token = await registerForPushNotificationsAsync();
-      console.log("Saving registering push notification")
-      console.log("New token is: ", token)
-      if (token) {
-        await savePushTokenToBackend(data.id, token);
+      const data = await res.json();
+
+      if (!res.ok) {
+        console.error("Backend Google login error (Android):", data);
+        Alert.alert("Error", data.detail || "Could not sign in with Google.");
+        return;
       }
+
+      await AsyncStorage.setItem("user", JSON.stringify(data));
+
+      try {
+        await Purchases.logIn(String(data.id));
+      } catch (e) {
+        console.log("RevenueCat logIn error (google Android):", e);
+      }
+
+      const needsProfile =
+        data.age == null || data.height == null || data.weight == null || !data.sex;
+
+      router.replace(needsProfile ? "/userinfo" : "/(tabs)/home");
+      // 📌 Check for push_token, if not registerForPushNotification
+      console.log("DKA 1")
+      console.log("push token: ", data.push_token)
+      if (data.push_token == undefined) {
+        const token = await registerForPushNotificationsAsync();
+        console.log("Saving registering push notification")
+        console.log("New token is: ", token)
+        if (token) {
+          await savePushTokenToBackend(data.id, token);
+        }
+      }
+    } catch (err) {
+      console.error("Google login backend error (Android)", err);
+      Alert.alert("Network error", "Could not reach server. Please try again.");
     }
-  } catch (err) {
-    console.error("Google login backend error (Android)", err);
-    Alert.alert("Network error", "Could not reach server. Please try again.");
-  }
-};
-
-  // -------------------------
-  // Google login → backend `/login/google`
-  // -------------------------
-  // const loginWithGoogleOnBackend = async (accessToken: string) => {
-  //   try {
-  //     const res = await fetch(`${API_URL}/login/google`, {
-  //       method: "POST",
-  //       headers: { "Content-Type": "application/json" },
-  //       body: JSON.stringify({ access_token: accessToken }),
-  //     });
-
-  //     const data = await res.json();
-
-  //     // reset the flag once we’ve handled the response
-  //     setGoogleLoginRequested(false);
-
-  //     if (!res.ok) {
-  //       console.error("Backend Google login error:", data);
-  //       Alert.alert(
-  //         "Error",
-  //         data.detail || "Could not sign in with Google. Please try again."
-  //       );
-  //       return;
-  //     }
-
-  //     // 1. Save user
-  //     await AsyncStorage.setItem("user", JSON.stringify(data));
-  //     console.log("auth loginWithGoogleOnBackend: ", JSON.stringify(data))
-  //     // 2. LOGIN to RevenueCat 🔥
-  //     try {
-  //       const rcResult = await Purchases.logIn(String(data.id));
-  //       console.log("RevenueCat logIn (google):", rcResult);
-  //     } catch (e) {
-  //       console.log("RevenueCat logIn error (google):", e);
-  //     }
-
-  //     // 3. Redirect
-  //     router.replace("/(tabs)/home");
-  //   } catch (err) {
-  //     console.error("Google login backend error", err);
-  //     setGoogleLoginRequested(false);
-  //     Alert.alert("Network error", "Could not reach server. Please try again.");
-  //   }
-  // };
+  };
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -381,6 +396,43 @@ const loginWithGoogleOnBackendAndroid = async (idToken: string) => {
           </Text>
         </TouchableOpacity>
 
+        {/* Login with apple */}
+        {Platform.OS === "ios" && (
+          <AppleAuthentication.AppleAuthenticationButton
+            buttonType={AppleAuthentication.AppleAuthenticationButtonType.SIGN_IN}
+            buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.BLACK}
+            cornerRadius={8}
+            style={{ width: "100%", height: 48, marginTop: 12 }}
+            onPress={async () => {
+              try {
+                const credential = await AppleAuthentication.signInAsync({
+                  requestedScopes: [
+                    AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+                    AppleAuthentication.AppleAuthenticationScope.EMAIL,
+                  ],
+                });
+
+                if (!credential.identityToken) {
+                  Alert.alert("Apple Sign-In failed", "No identity token returned.");
+                  return;
+                }
+
+                await loginWithAppleOnBackend(
+                  credential.identityToken,
+                  credential.fullName?.givenName ?? undefined,
+                  credential.fullName?.familyName ?? undefined,
+                  credential.email ?? undefined
+                );
+              } catch (e: any) {
+                if (e?.code === "ERR_REQUEST_CANCELED") return;
+                console.log("Apple Sign-In error:", e);
+                Alert.alert("Apple Sign-In failed", e?.message || "Please try again.");
+              }
+            }}
+          />
+        )}
+
+
         <TouchableOpacity
           onPress={() => router.push("/createaccount")}
           style={{ marginTop: 20 }}
@@ -395,7 +447,7 @@ const loginWithGoogleOnBackendAndroid = async (idToken: string) => {
           onPress={() => router.push("/forgot-password")}
           style={{ marginTop: 20, alignSelf: "center" }}
         >
-          <Text style={{ color: "#9ca3af", textDecorationLine: "underline"}}>
+          <Text style={{ color: "#9ca3af", textDecorationLine: "underline" }}>
             Forgot password?
           </Text>
         </TouchableOpacity>

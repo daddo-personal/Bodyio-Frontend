@@ -231,7 +231,7 @@ export default function UploadScreen() {
         }
       }
       else {
-      setHeight(parsed.height);
+        setHeight(parsed.height);
       }
     };
     loadUser();
@@ -272,6 +272,9 @@ export default function UploadScreen() {
   };
 
   const validateSinglePose = async (label: string, uri: string) => {
+    // turn spinner on for this specific photo
+    setUploading((prev) => ({ ...prev, [label]: true }));
+
     try {
       const formData = new FormData();
       formData.append("photo", { uri, name: `${label}.jpg`, type: "image/jpeg" } as any);
@@ -289,7 +292,8 @@ export default function UploadScreen() {
       if (!res.ok) {
         Alert.alert(
           "Pose Invalid",
-          safeErrorMessage(data?.detail ?? data ?? raw) || `Your ${label} photo didn’t pass validation.`
+          safeErrorMessage(data?.detail ?? data ?? raw) ||
+          `Your ${label} photo didn’t pass validation.`
         );
         setValidated((prev) => ({ ...prev, [label]: false }));
         return false;
@@ -301,8 +305,12 @@ export default function UploadScreen() {
       console.error("Pose validation failed", err);
       Alert.alert("Error", "Failed to validate image. Please try again.");
       return false;
+    } finally {
+      // turn spinner off
+      setUploading((prev) => ({ ...prev, [label]: false }));
     }
   };
+
 
   const pickImage = async (setter: (v: string) => void, label: string) => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -459,8 +467,8 @@ export default function UploadScreen() {
         typeof err?.message === "string"
           ? err.message
           : typeof err === "string"
-          ? err
-          : "Network error. Please try again.";
+            ? err
+            : "Network error. Please try again.";
 
       Alert.alert("Error", msg);
       // ✅ removed: router.push("/(tabs)/settings");
@@ -487,16 +495,27 @@ export default function UploadScreen() {
     setter: (v: string | null) => void
   ) => {
     const key = label.toLowerCase() as "front" | "side" | "back";
-
+    const isUploading = !!uploading[key];
+  
     return (
       <View style={{ marginBottom: 20, alignItems: "center" }}>
         <Text style={styles.label}>{label} Photo</Text>
 
         {uri ? (
-          <Image source={{ uri }} style={styles.preview} />
+          <View style={{ position: "relative" }}>
+            <Image source={{ uri }} style={styles.preview} />
+
+            {isUploading && (
+              <View style={styles.photoSpinnerOverlay}>
+                <ActivityIndicator size="large" color="#fff" />
+                <Text style={styles.photoSpinnerText}>Processing…</Text>
+              </View>
+            )}
+          </View>
         ) : (
           <Text style={styles.placeholder}>No photo uploaded</Text>
         )}
+
 
         {/* ✅ validation check */}
         {validated[key] && uri && (
@@ -507,13 +526,15 @@ export default function UploadScreen() {
 
         {/* Add / Retake */}
         <TouchableOpacity
-          style={[styles.button, { backgroundColor: "#fff" }]}
-          onPress={() => chooseImageSource(setter as any, key)}
+          style={[styles.button, { backgroundColor: "#fff", opacity: isUploading ? 0.6 : 1 }]}
+          onPress={() => !isUploading && chooseImageSource(setter as any, key)}
+          disabled={isUploading}
         >
           <Text style={[styles.buttonText, { color: "#000" }]}>
-            {uri ? "Retake" : "Add"} {label} Photo
+            {isUploading ? "Processing…" : `${uri ? "Retake" : "Add"} ${label} Photo`}
           </Text>
         </TouchableOpacity>
+
 
         {/* 🧹 CLEAR BUTTON (only if photo exists) */}
         {uri && (
@@ -672,4 +693,22 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
   saveButtonText: { color: "#000", fontWeight: "600", fontSize: 16 },
+  photoSpinnerOverlay: {
+  position: "absolute",
+  top: 0,
+  left: 0,
+  right: 0,
+  bottom: 0,
+  borderRadius: 8,
+  backgroundColor: "rgba(0,0,0,0.55)",
+  alignItems: "center",
+  justifyContent: "center",
+},
+
+photoSpinnerText: {
+  marginTop: 10,
+  color: "#fff",
+  fontWeight: "700",
+},
+
 });

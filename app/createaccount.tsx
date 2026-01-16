@@ -7,6 +7,7 @@ import React, { useEffect, useState } from "react";
 import { Alert, Image, Platform, SafeAreaView, ScrollView, Text, TextInput, TouchableOpacity } from "react-native";
 import { GoogleSignin } from "@react-native-google-signin/google-signin";
 import { registerForPushNotificationsAsync } from "../hooks/notifications";
+import * as AppleAuthentication from "expo-apple-authentication";
 
 const API_URL = Constants.expoConfig?.extra?.apiUrl;
 const googleWebClientId = Constants.expoConfig?.extra?.googleWebClientId;
@@ -107,6 +108,51 @@ export default function CreateAccount() {
       Alert.alert("Network error", "Please try again later.");
     }
   };
+
+  const appleUpsertOnBackend = async (
+    identityToken: string,
+    firstName?: string,
+    lastName?: string,
+    email?: string
+  ) => {
+    try {
+      const res = await fetch(`${API_URL}/login/apple`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          identity_token: identityToken,
+          first_name: firstName,
+          last_name: lastName,
+          email,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        console.error("Backend Apple auth error:", data);
+        Alert.alert("Error", data.detail || "Could not continue with Apple.");
+        return;
+      }
+
+      await AsyncStorage.setItem("user", JSON.stringify(data));
+
+      if (!data.push_token) {
+        const token = await registerForPushNotificationsAsync();
+        if (token) await savePushTokenToBackend(data.id, token);
+      }
+
+      // New Apple user usually needs profile info
+      const needsProfile =
+        data.age == null || data.height == null || data.weight == null || !data.sex;
+
+      router.replace(needsProfile ? "/userinfo" : "/(tabs)/home");
+    } catch (e) {
+      console.error("Apple auth backend error:", e);
+      Alert.alert("Network error", "Could not reach server. Please try again.");
+    }
+  };
+
 
   // -------------------------
   // Google signup helpers
@@ -251,7 +297,7 @@ export default function CreateAccount() {
           <Text style={[styles.buttonText, { color: "#000" }]}>Sign Up</Text>
         </TouchableOpacity>
 
-        {/* Google */}
+        {/* Google
         <TouchableOpacity
           disabled={Platform.OS === "ios" ? !request : false}
           onPress={() => {
@@ -284,7 +330,43 @@ export default function CreateAccount() {
             }}
           />
           <Text style={styles.buttonText}>Continue with Google</Text>
-        </TouchableOpacity>
+        </TouchableOpacity> */}
+
+        {/* Sign Up with aple
+        {Platform.OS === "ios" && (
+          <AppleAuthentication.AppleAuthenticationButton
+            buttonType={AppleAuthentication.AppleAuthenticationButtonType.SIGN_UP}
+            buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.BLACK}
+            cornerRadius={8}
+            style={{ width: "100%", height: 48, marginTop: 12 }}
+            onPress={async () => {
+              try {
+                const credential = await AppleAuthentication.signInAsync({
+                  requestedScopes: [
+                    AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+                    AppleAuthentication.AppleAuthenticationScope.EMAIL,
+                  ],
+                });
+
+                if (!credential.identityToken) {
+                  Alert.alert("Apple Sign-Up failed", "No identity token returned.");
+                  return;
+                }
+
+                await appleUpsertOnBackend(
+                  credential.identityToken,
+                  credential.fullName?.givenName ?? undefined,
+                  credential.fullName?.familyName ?? undefined,
+                  credential.email ?? undefined
+                );
+              } catch (e: any) {
+                if (e?.code === "ERR_REQUEST_CANCELED") return;
+                console.log("Apple Sign-Up error:", e);
+                Alert.alert("Apple Sign-Up failed", e?.message || "Please try again.");
+              }
+            }}
+          />
+        )} */}
 
         {/* Already have account */}
         <TouchableOpacity onPress={() => router.push("/auth")} style={{ marginTop: 16 }}>
