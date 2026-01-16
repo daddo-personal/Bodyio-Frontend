@@ -3,6 +3,7 @@ import { View, Text, TextInput, TouchableOpacity, Alert } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Constants from "expo-constants";
 import { useRouter } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
 
 const API_URL = Constants.expoConfig.extra.apiUrl;
 
@@ -44,7 +45,12 @@ export default function ForgotPassword() {
   };
 
   return (
+    
     <SafeAreaView style={{ flex: 1, backgroundColor: "#1f1f1f", padding: 16 }}>
+      <TouchableOpacity onPress={() => router.back()} style={{ alignSelf: "flex-start", marginBottom: 50 }}>
+        <Ionicons name="chevron-back" size={28} color="#fff" />
+      </TouchableOpacity>
+
       <Text style={{ color: "#fff", fontSize: 24, fontWeight: "700", marginBottom: 12 }}>
         Forgot Password
       </Text>

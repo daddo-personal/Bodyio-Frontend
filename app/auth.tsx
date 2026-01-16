@@ -313,7 +313,7 @@ const loginWithGoogleOnBackendAndroid = async (idToken: string) => {
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.container}>
-        <Text style={styles.title}>Welcome Back 👋</Text>
+        <Text style={styles.title}>Login</Text>
 
         <TextInput
           placeholder="Email"

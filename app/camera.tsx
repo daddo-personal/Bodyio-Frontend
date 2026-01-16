@@ -11,6 +11,7 @@ import { CameraView, useCameraPermissions } from "expo-camera";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Audio } from "expo-av";
+import { Ionicons } from "@expo/vector-icons";
 
 export default function CameraScreen() {
   const router = useRouter();
@@ -160,7 +161,6 @@ export default function CameraScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: "#000" }}>
       <CameraView ref={cameraRef} style={styles.camera} facing="back" />
-
       {/* COUNTDOWN OVERLAY */}
       {countdown !== null && (
         <View style={styles.countdownOverlay}>

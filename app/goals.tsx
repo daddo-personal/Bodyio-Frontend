@@ -13,6 +13,7 @@ import {
   TextInput,
   TouchableOpacity,
   View,
+  Platform,
 } from "react-native";
 import DateTimePickerModal from "react-native-modal-datetime-picker";
 
@@ -23,15 +24,41 @@ const METRICS = [
   { key: "bmi", label: "BMI" },
   { key: "fat_percent", label: "Fat %" },
   { key: "skeletal_muscle_percent", label: "Muscle %" },
-  // { key: "skeletal_muscle_pounds", label: "Muscle lbs" },
-  // { key: "fat_mass", label: "Fat Mass" },
 ];
 
-// Converts date string "2025-12-31" into readable format
 function formatDisplayDate(ymd: string) {
   const [y, m, d] = ymd.split("-");
   return new Date(`${y}-${m}-${d}T00:00:00`).toDateString();
 }
+
+const isPercentMetric = (metricKey: string) =>
+  metricKey === "fat_percent" || metricKey === "skeletal_muscle_percent";
+
+const getTargetUnitLabel = (metricKey: string) => {
+  if (isPercentMetric(metricKey)) return "(%)";
+  if (metricKey === "weight") return "(lbs)";
+  if (metricKey === "bmi") return "";
+  return "";
+};
+
+/**
+ * Parses target values safely:
+ * - percent metrics: accept "10", "10%", or "0.10" meaning 10%
+ *   - if 0 < n <= 1 => treat as fraction and convert to percent
+ * - non-percent: just parse number
+ */
+const parseTargetValue = (raw: string, metricKey: string) => {
+  const cleaned = raw.trim().replace(/\s+/g, "").replace("%", "");
+  const n = Number(cleaned);
+  if (!Number.isFinite(n)) return null;
+
+  if (isPercentMetric(metricKey)) {
+    if (n > 0 && n <= 1) return n * 100; // 0.10 => 10
+    return n; // 10 => 10
+  }
+
+  return n;
+};
 
 export default function GoalsScreen() {
   const router = useRouter();
@@ -44,14 +71,64 @@ export default function GoalsScreen() {
   const [editingGoal, setEditingGoal] = useState<any | null>(null);
   const [targetValue, setTargetValue] = useState<string>("");
 
-  // ⭐ Store date as pure YYYY-MM-DD (NEVER as a Date object)
-  const [selectedDate, setSelectedDate] = useState<{ year: string; month: string; day: string }>({
+  // Store date as YYYY-MM-DD parts
+  const [selectedDate, setSelectedDate] = useState<{
+    year: string;
+    month: string;
+    day: string;
+  }>({
     year: "2025",
     month: "01",
     day: "01",
   });
 
   const [isPickerVisible, setPickerVisible] = useState(false);
+
+  // ----------------------
+  // Fetch premium from backend (calls verify_premium)
+  // ----------------------
+
+  useEffect(() => {
+    if (!userId) return;
+    async function fetchUserData() {
+      try {
+        // 1) Hit verify_premium for this platform
+        const verifyUrl = `${API_URL}/users/${userId}/${Platform.OS}/verify_premium`;
+        console.log("Goals verify_premium:", verifyUrl);
+        const verifyRes = await fetch(verifyUrl);
+        console.log("Goals verify_premium status:", verifyRes.status);
+        let verifyBody: any = null;
+        try {
+          verifyBody = await verifyRes.json();
+        } catch {
+          // ignore body parse errors
+        }
+        console.log("Goals verify_premium body:", verifyBody);
+
+        // 2) Fetch fresh user from backend
+        const res = await fetch(`${API_URL}/users/${userId}`);
+        if (!res.ok) {
+          console.log("Goals /users fetch failed:", res.status);
+          return;
+        }
+
+        const json = await res.json();
+        setIsPremium(json.is_premium || false);
+
+        // 3) Sync into AsyncStorage
+        const saved = await AsyncStorage.getItem("user");
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          parsed.is_premium = json.is_premium;
+          await AsyncStorage.setItem("user", JSON.stringify(parsed));
+        }
+      } catch (err) {
+        console.log("Error fetching user scan count / premium:", err);
+      }
+    }
+
+    fetchUserData();
+  }, [userId]);
 
   // -----------------------------
   // Load user
@@ -72,6 +149,7 @@ export default function GoalsScreen() {
 
   useEffect(() => {
     fetchGoals();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
 
   const fetchGoals = async () => {
@@ -79,15 +157,16 @@ export default function GoalsScreen() {
     try {
       const res = await fetch(`${API_URL}/goals/${userId}`);
       const data = await res.json();
-      setGoals(data);
-    } catch {}
+      setGoals(Array.isArray(data) ? data : []);
+    } catch {
+      // ignore
+    }
   };
 
   // -----------------------------
   // Date Picker
   // -----------------------------
   const handleConfirmDate = (date: Date) => {
-    // ⭐ EXTRACT ONLY THE DATE — THROW AWAY THE JS Date object
     const year = date.getFullYear().toString();
     const month = String(date.getMonth() + 1).padStart(2, "0");
     const day = String(date.getDate()).padStart(2, "0");
@@ -99,10 +178,11 @@ export default function GoalsScreen() {
   const openCreateModal = () => {
     setEditingGoal({ metric: METRICS[0].key });
     setTargetValue("");
+    const now = new Date();
     setSelectedDate({
-      year: String(new Date().getFullYear()),
-      month: String(new Date().getMonth() + 1).padStart(2, "0"),
-      day: String(new Date().getDate()).padStart(2, "0"),
+      year: String(now.getFullYear()),
+      month: String(now.getMonth() + 1).padStart(2, "0"),
+      day: String(now.getDate()).padStart(2, "0"),
     });
     setModalVisible(true);
   };
@@ -110,7 +190,7 @@ export default function GoalsScreen() {
   const openEditModal = (goal: any) => {
     const [y, m, d] = goal.target_date.split("-");
     setEditingGoal(goal);
-    setTargetValue(String(goal.target_value));
+    setTargetValue(String(goal.target_value)); // backend stores numeric
     setSelectedDate({ year: y, month: m, day: d });
     setModalVisible(true);
   };
@@ -120,14 +200,30 @@ export default function GoalsScreen() {
   // -----------------------------
   const handleCreateGoal = async () => {
     if (!targetValue) return Alert.alert("Missing field", "Enter a value.");
+    if (!editingGoal?.metric) return Alert.alert("Missing field", "Select a metric.");
+
+    const parsed = parseTargetValue(targetValue, editingGoal.metric);
+    if (parsed == null) return Alert.alert("Invalid value", "Enter a valid number.");
+
+    // Optional sanity checks
+    if (isPercentMetric(editingGoal.metric) && (parsed < 0 || parsed > 100)) {
+      return Alert.alert("Invalid %", "Percent goals must be between 0 and 100.");
+    }
+    if (editingGoal.metric === "bmi" && (parsed < 5 || parsed > 80)) {
+      // loose bounds, just to catch typos
+      return Alert.alert("Invalid BMI", "Enter a realistic BMI value.");
+    }
+    if (editingGoal.metric === "weight" && parsed <= 0) {
+      return Alert.alert("Invalid weight", "Weight must be greater than 0.");
+    }
 
     const ymd = `${selectedDate.year}-${selectedDate.month}-${selectedDate.day}`;
 
     const payload = {
       user_id: userId,
       metric: editingGoal.metric,
-      target_value: parseFloat(targetValue),
-      target_date: ymd, // ⭐ EXACT DATE STRING — NO TIMEZONE EVER
+      target_value: parsed,
+      target_date: ymd,
     };
 
     try {
@@ -137,25 +233,47 @@ export default function GoalsScreen() {
         body: JSON.stringify(payload),
       });
 
-      if (!res.ok) throw new Error();
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        Alert.alert("Error", err?.detail || "Failed to create goal.");
+        return;
+      }
+
       Alert.alert("Success", "Goal created");
       setModalVisible(false);
       fetchGoals();
-    } catch {}
+    } catch {
+      Alert.alert("Error", "Failed to create goal.");
+    }
   };
 
   // -----------------------------
   // SAVE EDITED GOAL
   // -----------------------------
   const handleSaveGoal = async () => {
+    if (!editingGoal?.id) return;
     if (!targetValue) return Alert.alert("Missing field", "Enter a value.");
+
+    const metricKey = editingGoal.metric;
+    const parsed = parseTargetValue(targetValue, metricKey);
+    if (parsed == null) return Alert.alert("Invalid value", "Enter a valid number.");
+
+    if (isPercentMetric(metricKey) && (parsed < 0 || parsed > 100)) {
+      return Alert.alert("Invalid %", "Percent goals must be between 0 and 100.");
+    }
+    if (metricKey === "bmi" && (parsed < 5 || parsed > 80)) {
+      return Alert.alert("Invalid BMI", "Enter a realistic BMI value.");
+    }
+    if (metricKey === "weight" && parsed <= 0) {
+      return Alert.alert("Invalid weight", "Weight must be greater than 0.");
+    }
 
     const ymd = `${selectedDate.year}-${selectedDate.month}-${selectedDate.day}`;
 
     const payload = {
       user_id: userId,
-      metric: editingGoal.metric,
-      target_value: parseFloat(targetValue),
+      metric: metricKey,
+      target_value: parsed,
       target_date: ymd,
     };
 
@@ -166,11 +284,18 @@ export default function GoalsScreen() {
         body: JSON.stringify(payload),
       });
 
-      if (!res.ok) throw new Error();
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        Alert.alert("Error", err?.detail || "Failed to update goal.");
+        return;
+      }
+
       Alert.alert("Success", "Goal updated");
       setModalVisible(false);
       fetchGoals();
-    } catch {}
+    } catch {
+      Alert.alert("Error", "Failed to update goal.");
+    }
   };
 
   // -----------------------------
@@ -184,15 +309,26 @@ export default function GoalsScreen() {
         style: "destructive",
         onPress: async () => {
           try {
-            await fetch(`${API_URL}/goals/${goalId}`, { method: "DELETE" });
+            const res = await fetch(`${API_URL}/goals/${goalId}`, { method: "DELETE" });
+            if (!res.ok) {
+              Alert.alert("Error", "Failed to delete goal.");
+              return;
+            }
             Alert.alert("Deleted");
             setModalVisible(false);
             fetchGoals();
-          } catch {}
+          } catch {
+            Alert.alert("Error", "Failed to delete goal.");
+          }
         },
       },
     ]);
   };
+
+  const activeMetricKey = editingGoal?.metric || "weight";
+  const unitLabel = getTargetUnitLabel(activeMetricKey);
+  const placeholder =
+    isPercentMetric(activeMetricKey) ? "e.g. 10 or 10% or 0.10" : "Enter value";
 
   return (
     <ScrollView contentContainerStyle={{ padding: 16 }}>
@@ -205,7 +341,7 @@ export default function GoalsScreen() {
       {goals.length === 0 ? (
         <View style={{ alignItems: "center", marginTop: 20 }}>
           <Text style={{ color: "#fff", marginBottom: 12 }}>
-            You don't have any goals yet.
+            You don&apos;t have any goals yet.
           </Text>
           <TouchableOpacity style={styles.saveButton} onPress={openCreateModal}>
             <Text style={{ fontWeight: "600", color: "#000" }}>
@@ -225,13 +361,14 @@ export default function GoalsScreen() {
                 <Text style={styles.goalMetric}>
                   {METRICS.find((m) => m.key === g.metric)?.label}
                 </Text>
-                <Text style={styles.goalDate}>
-                  {formatDisplayDate(g.target_date)}
-                </Text>
+                <Text style={styles.goalDate}>{formatDisplayDate(g.target_date)}</Text>
               </View>
 
               <Text style={styles.goalTargetLabel}>Target</Text>
-              <Text style={styles.goalTargetValue}>{g.target_value}</Text>
+              <Text style={styles.goalTargetValue}>
+                {g.target_value}
+                {isPercentMetric(g.metric) ? "%" : ""}
+              </Text>
             </TouchableOpacity>
           ))}
 
@@ -261,27 +398,27 @@ export default function GoalsScreen() {
                   data={METRICS}
                   keyExtractor={(i) => i.key}
                   renderItem={({ item }) => {
-                    const disabled =
-                      !isPremium && !["weight", "bmi"].includes(item.key);
+                    const disabled = !isPremium && !["weight", "bmi"].includes(item.key);
+
+                    const selected = editingGoal?.metric === item.key;
 
                     return (
                       <TouchableOpacity
                         disabled={disabled}
                         style={[
                           styles.metricChip,
-                          editingGoal?.metric === item.key &&
-                            styles.metricChipActive,
+                          selected && styles.metricChipActive,
                           disabled && styles.metricChipDisabled,
                         ]}
-                        onPress={() =>
-                          setEditingGoal({ ...editingGoal, metric: item.key })
-                        }
+                        onPress={() => {
+                          setEditingGoal({ ...editingGoal, metric: item.key });
+                          setTargetValue(""); // reset input when switching metric
+                        }}
                       >
                         <Text
                           style={[
                             styles.metricChipText,
-                            editingGoal?.metric === item.key &&
-                              styles.metricChipTextActive,
+                            selected && styles.metricChipTextActive,
                           ]}
                         >
                           {item.label}
@@ -294,11 +431,13 @@ export default function GoalsScreen() {
             )}
 
             {/* Value */}
-            <Text style={styles.modalLabel}>Target Value</Text>
+            <Text style={styles.modalLabel}>
+              Target Value {unitLabel ? ` ${unitLabel}` : ""}
+            </Text>
             <TextInput
               style={styles.modalInput}
               value={targetValue}
-              placeholder="Enter value"
+              placeholder={placeholder}
               placeholderTextColor="#666"
               onChangeText={setTargetValue}
               keyboardType="numeric"
@@ -321,16 +460,14 @@ export default function GoalsScreen() {
               mode="date"
               onConfirm={handleConfirmDate}
               onCancel={() => setPickerVisible(false)}
-              minimumDate={new Date()} 
+              minimumDate={new Date()}
             />
 
             {/* Buttons */}
             <View style={styles.modalButtons}>
               <TouchableOpacity
                 style={styles.modalSaveButton}
-                onPress={() =>
-                  editingGoal?.id ? handleSaveGoal() : handleCreateGoal()
-                }
+                onPress={() => (editingGoal?.id ? handleSaveGoal() : handleCreateGoal())}
               >
                 <Text style={styles.modalSaveText}>
                   {editingGoal?.id ? "Save" : "Create"}

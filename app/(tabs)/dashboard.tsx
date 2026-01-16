@@ -1,29 +1,51 @@
-// 📊 DashboardScreen.tsx (updated chart setup with daily averaging)
+// 📊 DashboardScreen.tsx (FULL UPDATE)
+// ✅ Adds "Is this inaccurate?" pill on Recent Scan card
+// ✅ Opens a bottom-sheet modal (NO ROUTES)
+// ✅ User updates Fat % + Muscle % INSIDE the modal
+// ✅ Selects verification method (DEXA / Calipers / Smart Scale / Other)
+// ✅ Saves via PUT /metrics/{metric_id} as multipart/form-data
+//
+// 🚨 IMPORTANT BACKEND NOTE (read this once):
+// Your current PUT /metrics/{metric_id} endpoint (in the code you pasted)
+// does NOT accept fat_percent / skeletal_muscle_percent form fields.
+// It only recalculates if photos are provided.
+//
+// So this UI will work once you add 3 optional Form fields on backend:
+//   fat_percent: Optional[float] = Form(None)
+//   skeletal_muscle_percent: Optional[float] = Form(None)
+//   verified_method: Optional[str] = Form(None)
+//
+// I included the exact backend patch at the very bottom of this file comment.
+
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect } from "@react-navigation/native";
 import Constants from "expo-constants";
 import { useRouter } from "expo-router";
 import { DateTime } from "luxon";
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import Purchases from "react-native-purchases";
 import { Animated, Easing } from "react-native";
 
 import {
   ActivityIndicator,
   Alert,
   Dimensions,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
 import { LineChart } from "react-native-chart-kit";
+import { Ionicons } from "@expo/vector-icons";
 
 const API_URL = Constants.expoConfig.extra.apiUrl;
-const MAX_FREE_SCANS = 5
+const MAX_FREE_SCANS = 5;
+
 // ----------------------
 // Helpers
 // ----------------------
@@ -38,20 +60,20 @@ const LOCK_BLUR_OFFSETS = [
 ];
 
 const METRICS = [
-  { key: "weight", label: "Weight", type: "absolute", premium: false },
-  { key: "bmi", label: "BMI", type: "absolute", premium: false },
-  // { key: "fat_mass", label: "Fat Ibs", type: "absolute", premium: true },
-  { key: "fat_percent", label: "Fat %", type: "percent", premium: true },
-  { key: "skeletal_muscle_percent", label: "Muscle %", type: "percent", premium: true },
-  // { key: "skeletal_muscle_pounds", label: "Muscle lbs", type: "absolute", premium: true },
+  { key: "weight", label: "Weight", type: "absolute", premium: false, unitType: "weight" },
+  { key: "bmi", label: "BMI", type: "absolute", premium: false, unitType: "unitless" },
+  { key: "fat_percent", label: "Fat %", type: "percent", premium: true, unitType: "percent" },
+  { key: "skeletal_muscle_percent", label: "Muscle %", type: "percent", premium: true, unitType: "percent" },
 ];
 
 export default function DashboardScreen() {
   const router = useRouter();
   const scrollViewRef = useRef<ScrollView | null>(null);
+
   const formatLongDate = (isoString: string) => {
     return DateTime.fromISO(isoString).toFormat("LLLL d, yyyy");
   };
+
   // ----------------------
   // States
   // ----------------------
@@ -77,9 +99,15 @@ export default function DashboardScreen() {
   const [progressLoading, setProgressLoading] = useState(false);
   const [showModal, setShowModal] = useState(false);
 
+  // ✅ Verify / Update inside modal (NO ROUTES)
+  const [showAccuracyModal, setShowAccuracyModal] = useState(false);
+  const [verifyMethod, setVerifyMethod] = useState<"dexa" | "calipers" | "scale" | "other">("dexa");
+  const [verifyFat, setVerifyFat] = useState<string>("");
+  const [verifyMuscle, setVerifyMuscle] = useState<string>("");
+  const [savingVerify, setSavingVerify] = useState(false);
+
   const startGlow = () => {
     Animated.sequence([
-      // Pulse 1
       Animated.timing(glowAnim, {
         toValue: 1,
         duration: 800,
@@ -92,8 +120,6 @@ export default function DashboardScreen() {
         easing: Easing.in(Easing.ease),
         useNativeDriver: false,
       }),
-
-      // Pulse 2
       Animated.timing(glowAnim, {
         toValue: 1,
         duration: 800,
@@ -107,11 +133,124 @@ export default function DashboardScreen() {
         useNativeDriver: false,
       }),
     ]).start(() => {
-      // Turn off glow after animation
       setShouldGlow(false);
     });
   };
 
+  const unitForMetric = (metricKey: string, weightUnit: "lbs" | "kg") => {
+    if (metricKey === "fat_percent" || metricKey === "skeletal_muscle_percent") return "%";
+    if (metricKey === "bmi") return ""; // BMI is unitless
+    if (metricKey === "weight") return weightUnit; // "lbs" or "kg"
+    return "";
+  };
+
+  const perWeekUnitForMetric = (metricKey: string, weightUnit: "lbs" | "kg") => {
+    if (metricKey === "fat_percent" || metricKey === "skeletal_muscle_percent") return "%/week";
+    if (metricKey === "bmi") return "/week"; // unitless/week
+    if (metricKey === "weight") return `${weightUnit}/week`;
+    return "/week";
+  };
+
+  const formatValueWithUnit = (metricKey: string, value: number, weightUnit: "lbs" | "kg") => {
+    if (metricKey === "weight") {
+      return weightUnit === "kg" ? `${(value / 2.20462).toFixed(1)} kg` : `${value.toFixed(1)} lbs`;
+    }
+    if (metricKey === "fat_percent" || metricKey === "skeletal_muscle_percent") {
+      return `${value.toFixed(1)}%`;
+    }
+    if (metricKey === "bmi") {
+      return value.toFixed(1);
+    }
+    return value.toFixed(1);
+  };
+
+  // ----------------------
+  // Verify modal helpers
+  // ----------------------
+  const clampPct = (v: number) => Math.max(0, Math.min(v, 80));
+  const parsePct = (s: string) => {
+    const cleaned = s.replace(/[^0-9.]/g, "");
+    const n = Number(cleaned);
+    if (Number.isNaN(n)) return null;
+    return n;
+  };
+
+  const openVerifyModal = () => {
+    if (!recent) return;
+    setVerifyFat(recent.fat_percent != null ? String(Number(recent.fat_percent).toFixed(1)) : "");
+    setVerifyMuscle(
+      recent.skeletal_muscle_percent != null ? String(Number(recent.skeletal_muscle_percent).toFixed(1)) : ""
+    );
+    setVerifyMethod("dexa");
+    setShowAccuracyModal(true);
+  };
+
+  const saveVerifiedValues = async () => {
+    if (!recent?.id) {
+      Alert.alert("Error", "No recent scan found to update.");
+      return;
+    }
+
+    const fat = parsePct(verifyFat);
+    const muscle = parsePct(verifyMuscle);
+
+    if (fat == null || muscle == null) {
+      Alert.alert("Invalid input", "Please enter numbers for Fat % and Muscle %.");
+      return;
+    }
+
+    const fatClamped = clampPct(fat);
+    const muscleClamped = clampPct(muscle);
+
+    // optional sanity check
+    if (fatClamped + muscleClamped > 120) {
+      Alert.alert("Check values", "Those values look unusual. Please double-check.");
+      return;
+    }
+
+    setSavingVerify(true);
+    try {
+      const form = new FormData();
+      form.append("fat_percent", String(fatClamped));
+      form.append("skeletal_muscle_percent", String(muscleClamped));
+      form.append("verify_method", verifyMethod);
+
+      const res = await fetch(`${API_URL}/metrics_verify/${recent.id}`, {
+        method: "PUT",
+        body: form,
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        console.log("verify update error:", res.status, err);
+        Alert.alert("Update failed", err?.detail || "Could not update your scan.");
+        return;
+      }
+
+      const updated = await res.json();
+
+      // ✅ Update local recent so UI refreshes instantly
+      setRecent((prev: any) => ({
+        ...(prev || {}),
+        fat_percent: updated.fat_percent ?? fatClamped,
+        skeletal_muscle_percent: updated.skeletal_muscle_percent ?? muscleClamped,
+        verified_method: verifyMethod,
+        verified_at: new Date().toISOString(),
+      }));
+
+      setShowAccuracyModal(false);
+      Alert.alert("Saved", "Your verified values were updated.");
+    } catch (e) {
+      console.log("saveVerifiedValues error:", e);
+      Alert.alert("Error", "Something went wrong saving your update.");
+    } finally {
+      setSavingVerify(false);
+    }
+  };
+
+  // ----------------------
+  // Glow flag
+  // ----------------------
   useFocusEffect(
     useCallback(() => {
       async function checkGlowFlag() {
@@ -126,7 +265,9 @@ export default function DashboardScreen() {
     }, [recent])
   );
 
-
+  // ----------------------
+  // Load unit
+  // ----------------------
   useFocusEffect(
     useCallback(() => {
       async function loadUnit() {
@@ -139,38 +280,40 @@ export default function DashboardScreen() {
     }, [])
   );
 
-  const formatWeight = (lbsValue: number) => {
-    if (weightUnit === "kg") {
-      return (lbsValue / 2.20462).toFixed(1) + " kg";
-    }
-    return lbsValue.toFixed(1) + " lbs";
-  };
-
+  // ----------------------
+  // Fetch scan_count + premium from backend (calls verify_premium)
+  // ----------------------
   useEffect(() => {
     if (!userId) return;
+
     async function fetchUserData() {
       try {
+        // 1) Hit verify_premium for this platform
+        const verifyUrl = `${API_URL}/users/${userId}/${Platform.OS}/verify_premium`;
+        console.log("Dashboard verify_premium:", verifyUrl);
+        await fetch(verifyUrl).catch(() => null);
+
+        // 2) Fetch fresh user from backend
         const res = await fetch(`${API_URL}/users/${userId}`);
-        if (!res.ok) return;
+        if (!res.ok) {
+          console.log("Dashboard /users fetch failed:", res.status);
+          return;
+        }
 
         const json = await res.json();
-
-        // Set fresh scan count
         setScanCount(json.scan_count ?? 0);
-        // Optional: update stored user for consistency
-        const saved = await AsyncStorage.getItem("user");
-        if (!saved) return;
-        const parsed = JSON.parse(saved);
-        const dataRes = await fetch(`${API_URL}/users/${parsed.id}`);
+        setIsPremium(json.is_premium || false);
 
-        if (dataRes.ok) {
-          const data = await dataRes.json();
-          setIsPremium(data.is_premium || false);
-          parsed.scan_count = data.scan_count;
+        // 3) Sync into AsyncStorage
+        const saved = await AsyncStorage.getItem("user");
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          parsed.scan_count = json.scan_count;
+          parsed.is_premium = json.is_premium;
           await AsyncStorage.setItem("user", JSON.stringify(parsed));
         }
       } catch (err) {
-        console.log("Error fetching user scan count:", err);
+        console.log("Error fetching user scan count / premium:", err);
       }
     }
 
@@ -178,7 +321,7 @@ export default function DashboardScreen() {
   }, [userId]);
 
   // ----------------------
-  // Load user
+  // Load user from AsyncStorage
   // ----------------------
   useFocusEffect(
     useCallback(() => {
@@ -192,7 +335,6 @@ export default function DashboardScreen() {
           setUserId(parsed.id.toString());
           setUserName(parsed.first_name || "User");
           setIsPremium(parsed.is_premium || false);
-
         } else {
           Alert.alert("Not logged in", "Please log in first.");
           router.replace("/auth");
@@ -202,42 +344,11 @@ export default function DashboardScreen() {
     }, [])
   );
 
-  // ----------------------
-  // NEW: Self-Healing Premium Verification (calls your new endpoint)
-  // ----------------------
   useEffect(() => {
-    async function verifyPremium() {
-      if (!userId) return;
-      try {
-        const info = await Purchases.getCustomerInfo();
-        const premium = !!info.entitlements.active["BodyIO Pro"];
-
-        // Instantly update UI
-        setIsPremium(premium);
-
-        // Update local storage immediately
-        const saved = await AsyncStorage.getItem("user");
-        if (saved) {
-          const parsed = JSON.parse(saved);
-          parsed.is_premium = premium;
-          await AsyncStorage.setItem("user", JSON.stringify(parsed));
-        }
-
-        // Background sync to backend
-        fetch(`${API_URL}/users/${userId}/verify_premium`).catch(() => { });
-      } catch (err) {
-        console.log("Premium verify failed:", err);
-      }
-    };
-    verifyPremium();
-  }, [userId]);
-
-  useEffect(() => {
-    const selected = METRICS.find(m => m.key === metric);
-    if (selected?.premium && !isPremium) {
-      setMetric("weight");
-    }
+    const selected = METRICS.find((m) => m.key === metric);
+    if (selected?.premium && !isPremium) setMetric("weight");
   }, [isPremium]);
+
   // ----------------------
   // Fetch chart & latest metrics
   // ----------------------
@@ -245,23 +356,32 @@ export default function DashboardScreen() {
     useCallback(() => {
       if (!userId) return;
       setLoading(true);
+
       const fetchChartData = async () => {
         try {
-          // Latest scan
           const latestRes = await fetch(`${API_URL}/metrics/latest?user_id=${userId}`);
           const latestJson = latestRes.ok ? await latestRes.json() : null;
           setRecent(latestJson);
 
-          // Chart for selected metric
-          const chartRes = await fetch(`${API_URL}/metrics?user_id=${userId}&metric=${metric}&metric_range=${range}`);
+          const chartRes = await fetch(
+            `${API_URL}/metrics?user_id=${userId}&metric=${metric}&metric_range=${range}`
+          );
           const chartJson = chartRes.ok ? await chartRes.json() : { points: [], trend: 0 };
 
           const dataRes = await fetch(`${API_URL}/users/${userId}`);
           if (dataRes.ok) {
-            const data = await dataRes.json();
-            setIsPremium(data.is_premium || false);
+            const u = await dataRes.json();
+            setIsPremium(u.is_premium || false);
           }
-          const cleanedPoints = (chartJson.points || []).filter((p) => p.value != null);
+
+          const cleanedPoints = (chartJson.points || [])
+            .filter((p) => p.value != null)
+            .filter((p) => {
+              if (range !== "ytd") return true;
+              const cutoff = DateTime.now().startOf("year");
+              return DateTime.fromISO(p.taken_at).toLocal() >= cutoff;
+            });
+
           setData(cleanedPoints);
           setTrend(chartJson.trend || 0);
         } catch (err) {
@@ -277,7 +397,7 @@ export default function DashboardScreen() {
   );
 
   // ----------------------
-  // Fetch goals (independent of metric selection)
+  // Fetch goals
   // ----------------------
   useFocusEffect(
     useCallback(() => {
@@ -285,35 +405,30 @@ export default function DashboardScreen() {
 
       const fetchGoals = async () => {
         try {
-          // Fetch user goals
           const goalsRes = await fetch(`${API_URL}/goals/${userId}`);
           const goalsJson = goalsRes.ok ? await goalsRes.json() : [];
 
-          // Fetch metrics for each goal
-          const metricsPromises = goalsJson.map(goal =>
-            fetch(`${API_URL}/metrics?user_id=${userId}&metric=${goal.metric}&range=max`)
-              .then(res => res.json())
-              .then(data => ({ metric: goal.metric, ...data }))
+          const metricsPromises = goalsJson.map((goal) =>
+            fetch(`${API_URL}/metrics?user_id=${userId}&metric=${goal.metric}&metric_range=max`)
+              .then((res) => res.json())
+              .then((d) => ({ metric: goal.metric, ...d }))
           );
           const allMetrics = await Promise.all(metricsPromises);
 
-          // Build historical data: array of points per metric
           const historicalData: Record<string, any[]> = {};
-          allMetrics.forEach(metricData => {
+          allMetrics.forEach((metricData) => {
             const points = (metricData.points || []).filter((p: any) => p.value != null);
             if (points.length > 0) historicalData[metricData.metric] = points;
           });
 
-          // Calculate progress for each goal
-          const goalsWithProgress = goalsJson.map(goal => {
+          const goalsWithProgress = goalsJson.map((goal) => {
             const points = historicalData[goal.metric];
             if (!points || points.length === 0) return { ...goal, progress: 0, on_track: false };
 
-            // Sort points by date descending
             points.sort((a, b) => new Date(b.taken_at).getTime() - new Date(a.taken_at).getTime());
 
-            const latestValue = Number(points[0].value); // most recent
-            const firstValue = Number(points[points.length - 1].value); // oldest
+            const latestValue = Number(points[0].value);
+            const firstValue = Number(points[points.length - 1].value);
             const targetValue = Number(goal.target_value);
 
             if (isNaN(firstValue) || isNaN(latestValue) || isNaN(targetValue)) {
@@ -323,10 +438,8 @@ export default function DashboardScreen() {
             let progressPct = 0;
             if (firstValue === targetValue) progressPct = 100;
             else if (firstValue > targetValue) {
-              // Goal is to decrease
               progressPct = ((firstValue - latestValue) / (firstValue - targetValue)) * 100;
             } else {
-              // Goal is to increase
               progressPct = ((latestValue - firstValue) / (targetValue - firstValue)) * 100;
             }
 
@@ -345,9 +458,9 @@ export default function DashboardScreen() {
   );
 
   // ----------------------
-  // Open goal modal
+  // Goal modal open
   // ----------------------
-  const openGoalDetails = async (goal) => {
+  const openGoalDetails = async (goal: any) => {
     setSelectedGoal(goal);
     setShowModal(true);
     setProgressLoading(true);
@@ -368,51 +481,42 @@ export default function DashboardScreen() {
   // Prepare chart data
   // ----------------------
   const latestByDay: Record<string, { taken_at: string; value: number }> = {};
-
   data.forEach((point) => {
-    // dayKey in user's local timezone (so "day" matches what they expect)
     const dayKey = DateTime.fromISO(point.taken_at, { zone: "utc" })
       .setZone(Intl.DateTimeFormat().resolvedOptions().timeZone)
       .toISODate();
 
     const prev = latestByDay[dayKey];
     const currTime = new Date(point.taken_at).getTime();
-
     if (!prev || currTime > new Date(prev.taken_at).getTime()) {
       latestByDay[dayKey] = { taken_at: point.taken_at, value: Number(point.value) };
     }
   });
 
-  // Sort by day ascending
   const groupedData = Object.entries(latestByDay)
     .map(([day, v]) => ({ day, value: v.value }))
     .sort((a, b) => DateTime.fromISO(a.day).toMillis() - DateTime.fromISO(b.day).toMillis());
 
-  // Labels and values for chart
   const values = groupedData.map((p) => {
     if (metric === "weight") {
-      return weightUnit === "kg"
-        ? Number((p.value / 2.20462).toFixed(1))
-        : Number(p.value.toFixed(1));
+      return weightUnit === "kg" ? Number((p.value / 2.20462).toFixed(1)) : Number(p.value.toFixed(1));
     }
     return Number(p.value.toFixed(1));
   });
 
-  let labels = groupedData.map((p) =>
-    DateTime.fromISO(p.day).toLocaleString({ month: "short", day: "numeric" })
-  );
-
-  // Optional: limit labels for readability
+  let labels = groupedData.map((p) => DateTime.fromISO(p.day).toLocaleString({ month: "short", day: "numeric" }));
   if (labels.length > 8) {
     const step = Math.ceil(labels.length / 8);
     labels = labels.map((l, i) => (i % step === 0 ? l : ""));
   }
+
   const metricType = METRICS.find((m) => m.key === metric)?.type || "absolute";
   const trendingUp = trend >= 0;
   const changeText =
     metricType === "percent"
       ? `${trendingUp ? "▲" : "▼"} ${Math.abs(trend).toFixed(1)}%`
       : `${trendingUp ? "▲" : "▼"} ${Math.abs(trend).toFixed(1)}`;
+
   const color = trendingUp ? "#16a34a" : "#dc2626";
 
   const getProgressColor = (pct: number) => {
@@ -435,10 +539,7 @@ export default function DashboardScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView
-        ref={scrollViewRef}
-        contentContainerStyle={{ padding: 16 }}
-      >
+      <ScrollView ref={scrollViewRef} contentContainerStyle={{ padding: 16 }}>
         <Text style={styles.greeting}>👋 Hi, {userName}!</Text>
 
         {/* 🧾 Recent Scan */}
@@ -469,31 +570,48 @@ export default function DashboardScreen() {
               },
             ]}
           >
-
             <View style={styles.recentCard}>
               <Text style={styles.recentTitle}>🧾 Your Recent Scan Results</Text>
+
+              <TouchableOpacity
+                onPress={openVerifyModal}
+                activeOpacity={0.85}
+                style={styles.infoPillBelow}
+              >
+                <Ionicons name="information-circle" size={16} color="#fff" />
+                <Text style={styles.infoPillText}>Is this information inaccurate?</Text>
+              </TouchableOpacity>
+
+
               <View style={styles.metricsGrid}>
                 {METRICS.map((m) => {
                   const value = recent[m.key];
                   if (value == null) return null;
 
-                  const isNotLocked =
-                    scanCount <= MAX_FREE_SCANS && !isPremium && m.premium;
+                  const isNotLocked = scanCount <= MAX_FREE_SCANS && !isPremium && m.premium;
                   const isLocked = !isNotLocked && m.premium && !isPremium;
 
                   return (
                     <TouchableOpacity
                       key={m.key}
                       activeOpacity={isLocked ? 1 : 0.7}
-                      onPress={() => isLocked && router.push("/settings")}
+                      onPress={() => {
+                        if (isLocked) router.push("/settings");
+                      }}
                       style={styles.metricTile}
                     >
-                      {/* Metric Label - left-aligned */}
                       <Text style={styles.metricTileLabel}>{m.label}</Text>
-                      {/* Metric Value */}
+
                       {isLocked ? (
-                        <View style={{ position: "relative", alignItems: "center", justifyContent: "center", height: 28, marginTop: 4 }}>
-                          {/* Multiple blurred blobs */}
+                        <View
+                          style={{
+                            position: "relative",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            height: 28,
+                            marginTop: 4,
+                          }}
+                        >
                           {LOCK_BLUR_OFFSETS.map((o, i) => (
                             <View
                               key={i}
@@ -503,24 +621,17 @@ export default function DashboardScreen() {
                                 height: 28,
                                 borderRadius: 14,
                                 backgroundColor: "rgba(0,0,0,0.5)",
-                                blurRadius: 10,
-                                transform: [
-                                  { translateX: o.x },
-                                  { translateY: o.y },
-                                ],
+                                transform: [{ translateX: o.x }, { translateY: o.y }],
                               }}
                             />
                           ))}
-                          {/* Invisible text for layout */}
-                          <Text style={[styles.metricTileValue, { opacity: 0 }]}>{m.type === "percent" ? `${value.toFixed(1)}%` : value.toFixed(1)}</Text>
+                          <Text style={[styles.metricTileValue, { opacity: 0 }]}>
+                            {m.type === "percent" ? `${value.toFixed(1)}%` : value.toFixed(1)}
+                          </Text>
                         </View>
                       ) : (
                         <Text style={styles.metricTileValue}>
-                          {m.key === "weight"
-                            ? formatWeight(value)
-                            : m.type === "percent"
-                              ? `${value.toFixed(1)}%`
-                              : value.toFixed(1)}
+                          {formatValueWithUnit(m.key, value, weightUnit)}
                         </Text>
                       )}
                     </TouchableOpacity>
@@ -531,7 +642,115 @@ export default function DashboardScreen() {
           </Animated.View>
         )}
 
+        {/* ✅ Verify / Update modal (bottom sheet, edit INSIDE modal) */}
+        <Modal
+          visible={showAccuracyModal}
+          animationType="slide"
+          transparent
+          onRequestClose={() => setShowAccuracyModal(false)}
+        >
+          <View style={styles.sheetOverlay}>
+            {/* tap outside to close */}
+            <TouchableOpacity
+              activeOpacity={1}
+              onPress={() => setShowAccuracyModal(false)}
+              style={StyleSheet.absoluteFillObject as any}
+            />
 
+            <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined}>
+              <View style={styles.tooltipModal}>
+                <View style={styles.sheetGrabber} />
+
+                <Text style={styles.sheetTitle}>Verify / Update your scan</Text>
+                <Text style={styles.sheetText}>
+                  If your scan looks off, enter your verified Fat % and Muscle % below.
+                </Text>
+
+                {/* Method chips */}
+                <View style={styles.methodRow}>
+                  {[
+                    { key: "dexa", label: "DEXA" },
+                    { key: "calipers", label: "Calipers" },
+                    { key: "scale", label: "Smart Scale" },
+                    { key: "other", label: "Other" },
+                  ].map((m) => {
+                    const active = verifyMethod === (m.key as any);
+                    return (
+                      <TouchableOpacity
+                        key={m.key}
+                        onPress={() => setVerifyMethod(m.key as any)}
+                        style={[styles.methodChip, active && styles.methodChipActive]}
+                        activeOpacity={0.85}
+                      >
+                        <Text style={[styles.methodChipText, active && styles.methodChipTextActive]}>
+                          {m.label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+
+                {/* Inputs */}
+                <View style={styles.inputRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.inputLabel}>Fat %</Text>
+                    <TextInput
+                      value={verifyFat}
+                      onChangeText={setVerifyFat}
+                      keyboardType="decimal-pad"
+                      placeholder="e.g. 18.5"
+                      placeholderTextColor="#6b7280"
+                      style={styles.input}
+                      maxLength={5}
+                      returnKeyType="done"
+                    />
+                  </View>
+
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.inputLabel}>Muscle %</Text>
+                    <TextInput
+                      value={verifyMuscle}
+                      onChangeText={setVerifyMuscle}
+                      keyboardType="decimal-pad"
+                      placeholder="e.g. 41.2"
+                      placeholderTextColor="#6b7280"
+                      style={styles.input}
+                      maxLength={5}
+                      returnKeyType="done"
+                    />
+                  </View>
+                </View>
+
+                <Text style={styles.sheetFinePrint}>
+                  Tip: Use the same method each time for the best trend tracking.
+                </Text>
+
+                {/* Buttons */}
+                <View style={styles.sheetButtonRow}>
+                  <TouchableOpacity
+                    style={styles.secondaryBtn}
+                    onPress={() => setShowAccuracyModal(false)}
+                    disabled={savingVerify}
+                  >
+                    <Text style={styles.secondaryBtnText}>Cancel</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[styles.primaryBtn, savingVerify && { opacity: 0.6 }]}
+                    onPress={saveVerifiedValues}
+                    disabled={savingVerify}
+                  >
+                    {savingVerify ? (
+                      <ActivityIndicator color="#000" />
+                    ) : (
+                      <Text style={styles.primaryBtnText}>Save</Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </KeyboardAvoidingView>
+          </View>
+        </Modal>
 
         {/* 📈 Chart */}
         <Text style={styles.subtext}>📈 Track your progress below:</Text>
@@ -549,7 +768,10 @@ export default function DashboardScreen() {
                 disabled={disabled}
                 style={[
                   styles.metricButton,
-                  { backgroundColor: metric === m.key ? "#fff" : "#2c2c2c", opacity: disabled ? 0.5 : 1 },
+                  {
+                    backgroundColor: metric === m.key ? "#fff" : "#2c2c2c",
+                    opacity: disabled ? 0.5 : 1,
+                  },
                 ]}
               >
                 <Text style={{ color: metric === m.key ? "#000" : "#d1d5db", fontSize: 12, fontWeight: "600" }}>
@@ -582,8 +804,12 @@ export default function DashboardScreen() {
               height={260}
               yAxisSuffix={
                 metric === "weight"
-                  ? (weightUnit === "kg" ? " kg" : " lbs")
-                  : (metricType === "percent" ? "%" : "")
+                  ? weightUnit === "kg"
+                    ? " kg"
+                    : " lbs"
+                  : metricType === "percent"
+                    ? "%"
+                    : ""
               }
               withVerticalLines={false}
               withHorizontalLines
@@ -622,14 +848,19 @@ export default function DashboardScreen() {
                     {METRICS.find((m) => m.key === g.metric)?.label}: {g.target_value}
                     {g.metric.includes("percent") ? "%" : ""} by {g.target_date.split("T")[0]}
                   </Text>
+
                   <View style={styles.progressBarBackground}>
                     <View
                       style={[
                         styles.progressBarFill,
-                        { width: `${g.progress ?? 0}%`, backgroundColor: getProgressColor(g.progress ?? 0) },
+                        {
+                          width: `${g.progress ?? 0}%`,
+                          backgroundColor: getProgressColor(g.progress ?? 0),
+                        },
                       ]}
                     />
                   </View>
+
                   <Text style={styles.progressText}>{g.progress?.toFixed(1) ?? 0}% complete</Text>
                 </TouchableOpacity>
               ))}
@@ -651,77 +882,69 @@ export default function DashboardScreen() {
                     {selectedGoal ? METRICS.find((m) => m.key === selectedGoal.metric)?.label : "Goal"} Details
                   </Text>
 
-                  {goalProgress && selectedGoal && (
-                    <View style={{ gap: 16 }}>
+                  {goalProgress && selectedGoal && (() => {
+                    const unit = unitForMetric(selectedGoal.metric, weightUnit);
+                    const perWeek = perWeekUnitForMetric(selectedGoal.metric, weightUnit);
+                    const decimals = selectedGoal.metric === "bmi" ? 2 : 1;
 
-                      {/* Projected Value Card */}
-                      <View style={styles.statCard}>
-                        <Text style={styles.statLabel}>Projected Value</Text>
-                        <Text style={styles.statNumber}>
-                          {goalProgress.predicted_value?.toFixed(1)}
-                          {selectedGoal.metric.includes("percent") ? "%" : " lbs"}
-                        </Text>
-                        <Text style={styles.statSub}>
-                          by {formatLongDate(selectedGoal.target_date)}
-                        </Text>
+                    return (
+                      <View style={{ gap: 16 }}>
+                        <View style={styles.statCard}>
+                          <Text style={styles.statLabel}>Projected Value</Text>
+                          <Text style={styles.statNumber}>
+                            {goalProgress.predicted_value?.toFixed(decimals)}
+                            {unit ? ` ${unit}` : ""}
+                          </Text>
+                          <Text style={styles.statSub}>by {formatLongDate(selectedGoal.target_date)}</Text>
+                        </View>
+
+                        <View style={styles.rowCard}>
+                          <Text style={styles.rowLabel}>Remaining</Text>
+                          <Text style={[styles.rowValue, { color: "#fff" }]}>
+                            {Math.abs(goalProgress.difference_to_goal).toFixed(decimals)}
+                            {unit ? ` ${unit}` : ""}
+                          </Text>
+                        </View>
+
+                        <View style={styles.rowCard}>
+                          <Text style={styles.rowLabel}>Your Weekly Trend</Text>
+                          <Text
+                            style={[
+                              styles.rowValue,
+                              { color: goalProgress.weekly_change >= 0 ? "#16a34a" : "#dc2626" },
+                            ]}
+                          >
+                            {goalProgress.weekly_change >= 0 ? "+" : "-"}
+                            {Math.abs(goalProgress.weekly_change).toFixed(2)} {perWeek}
+                          </Text>
+                        </View>
+
+                        <View style={styles.rowCard}>
+                          <Text style={styles.rowLabel}>Required Weekly Pace</Text>
+                          <Text
+                            style={[
+                              styles.rowValue,
+                              { color: goalProgress.required_weekly_change >= 0 ? "#16a34a" : "#dc2626" },
+                            ]}
+                          >
+                            {goalProgress.required_weekly_change >= 0 ? "+" : "-"}
+                            {Math.abs(goalProgress.required_weekly_change).toFixed(2)} {perWeek}
+                          </Text>
+                        </View>
+
+                        <View style={styles.statusCard}>
+                          <Text
+                            style={[
+                              styles.statusText,
+                              { color: goalProgress.on_track ? "#16a34a" : "#dc2626" },
+                            ]}
+                          >
+                            {goalProgress.on_track ? "On Track" : "Not On Track"}
+                          </Text>
+                        </View>
                       </View>
-
-                      {/* Difference To Goal */}
-                      <View style={styles.rowCard}>
-                        <Text style={styles.rowLabel}>Remaining</Text>
-                        <Text style={[
-                          styles.rowValue,
-                          { color: "#fff" }
-                        ]}>
-                          {Math.abs(goalProgress.difference_to_goal).toFixed(1)}
-                          {selectedGoal.metric.includes("percent") ? "%" : " lbs"}
-                        </Text>
-                      </View>
-
-                      {/* Weekly Performance */}
-                      <View style={styles.rowCard}>
-                        <Text style={styles.rowLabel}>Your Weekly Trend</Text>
-                        <Text style={[
-                          styles.rowValue,
-                          { color: goalProgress.weekly_change >= 0 ? "#16a34a" : "#dc2626" }
-                        ]}>
-                          {goalProgress.weekly_change >= 0 ? "+" : "-"}
-                          {Math.abs(goalProgress.weekly_change).toFixed(2)}
-                          {selectedGoal.metric.includes("percent") ? "%/week" : " lbs/week"}
-                        </Text>
-                      </View>
-
-                      {/* Required Weekly Trend */}
-                      <View style={styles.rowCard}>
-                        <Text style={styles.rowLabel}>Required Weekly Pace</Text>
-                        <Text style={[
-                          styles.rowValue,
-                          {
-                            color:
-                              goalProgress.required_weekly_change >= 0 ? "#16a34a" : "#dc2626"
-                          }
-                        ]}>
-                          {goalProgress.required_weekly_change >= 0 ? "+" : "-"}
-                          {Math.abs(goalProgress.required_weekly_change).toFixed(2)}
-                          {selectedGoal.metric.includes("percent") ? "%/week" : " lbs/week"}
-                        </Text>
-                      </View>
-
-                      {/* Status */}
-                      <View style={styles.statusCard}>
-                        <Text
-                          style={[
-                            styles.statusText,
-                            { color: goalProgress.on_track ? "#16a34a" : "#dc2626" }
-                          ]}
-                        >
-                          {goalProgress.on_track ? "On Track" : "Not On Track"}
-                        </Text>
-                      </View>
-
-                    </View>
-                  )}
-
+                    );
+                  })()}
 
                   <TouchableOpacity style={styles.closeButton} onPress={() => setShowModal(false)}>
                     <Text style={{ color: "#000", fontWeight: "600" }}>Close</Text>
@@ -741,32 +964,91 @@ export default function DashboardScreen() {
 // ----------------------
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#1f1f1f" },
-  centered: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#1f1f1f" },
+  centered: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#1f1f1f",
+  },
+
   greeting: { fontSize: 22, fontWeight: "700", color: "#fff", marginBottom: 12 },
   subtext: { fontSize: 16, color: "#9ca3af", marginVertical: 12 },
   chartTitle: { fontSize: 20, fontWeight: "600", color: "#fff", marginBottom: 4 },
   changeText: { fontSize: 16, marginBottom: 16 },
-  recentCard: { backgroundColor: "#2c2c2c", borderRadius: 12, padding: 16, marginBottom: 16 },
-  recentTitle: { color: "#fff", textAlign: "center", fontSize: 18, fontWeight: "700", marginBottom: 6, justifyContent: "center" },
-  metricText: { color: "#d1d5db", fontSize: 15, marginBottom: 4 },
-  blurOverlay: { ...StyleSheet.absoluteFillObject, justifyContent: "center", alignItems: "center", borderRadius: 12 },
-  lockText: { color: "#fff", fontSize: 14, fontWeight: "600", backgroundColor: "rgba(0,0,0,0.5)", paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 },
-  metricSelector: { flexDirection: "row", justifyContent: "space-between", marginBottom: 12 },
-  metricButton: { flex: 1, marginHorizontal: 2, paddingVertical: 6, borderRadius: 8, alignItems: "center" },
-  rangeSelector: { flexDirection: "row", justifyContent: "space-around", marginBottom: 20 },
+
+  recentCard: {
+    backgroundColor: "#2c2c2c",
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+  },
+
+  recentHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+
+  recentTitle: {
+    color: "#fff",
+    textAlign: "center",
+    fontSize: 18,
+    fontWeight: "800",
+    marginBottom: 0,
+  },
+  infoPillBelow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    alignSelf: "center",
+    marginTop: 10,
+    marginBottom: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: "#3b3b3b",
+  },
+
+  infoPillText: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+
+  recentHint: {
+    marginTop: 8,
+    color: "#9ca3af",
+    fontSize: 12,
+    lineHeight: 16,
+  },
+
+  metricSelector: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 12,
+  },
+
+  metricButton: {
+    flex: 1,
+    marginHorizontal: 2,
+    paddingVertical: 6,
+    borderRadius: 8,
+    alignItems: "center",
+  },
+
+  rangeSelector: {
+    flexDirection: "row",
+    justifyContent: "space-around",
+    marginBottom: 20,
+  },
+
   rangeButton: { paddingVertical: 8, paddingHorizontal: 14, borderRadius: 8 },
+
   chartCard: { backgroundColor: "#2c2c2c", borderRadius: 16, padding: 10 },
+
   noDataText: { textAlign: "center", color: "#9ca3af" },
-  goalCard: { backgroundColor: "#2c2c2c", padding: 12, borderRadius: 8, marginBottom: 12 },
-  goalText: { color: "#fff", fontSize: 14, marginBottom: 6 },
-  progressBarBackground: { backgroundColor: "#3b3b3b", height: 10, borderRadius: 6, overflow: "hidden" },
-  progressBarFill: { height: 10, borderRadius: 6 },
-  progressText: { color: "#d1d5db", fontSize: 12, marginTop: 4 },
-  modalOverlay: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "rgba(0,0,0,0.6)" },
-  modalContent: { backgroundColor: "#2c2c2c", padding: 24, borderRadius: 12, width: "85%" },
-  modalTitle: { fontSize: 18, fontWeight: "700", color: "#fff", marginBottom: 12 },
-  modalText: { fontSize: 14, color: "#d1d5db", marginBottom: 12, lineHeight: 20 },
-  closeButton: { marginTop: 12, backgroundColor: "#fff", paddingVertical: 10, borderRadius: 8, alignItems: "center" },
+
   metricsGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -782,43 +1064,81 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     marginBottom: 12,
     position: "relative",
+    // borderWidth: 1,
+    // borderColor: "#333",
   },
 
   metricTileLabel: {
     color: "#9ca3af",
     fontSize: 13,
-    fontWeight: "500",
+    fontWeight: "600",
     marginBottom: 6,
-    textAlign: "center",  // labels left-aligned
+    textAlign: "center",
   },
 
   metricTileValue: {
     color: "#fff",
     fontSize: 20,
-    fontWeight: "700",
-    textAlign: "center", // numbers centered
+    fontWeight: "800",
+    textAlign: "center",
   },
+
+  goalCard: {
+    backgroundColor: "#2c2c2c",
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 12,
+  },
+
+  goalText: { color: "#fff", fontSize: 14, marginBottom: 6 },
+
+  progressBarBackground: {
+    backgroundColor: "#3b3b3b",
+    height: 10,
+    borderRadius: 6,
+    overflow: "hidden",
+  },
+
+  progressBarFill: { height: 10, borderRadius: 6 },
+
+  progressText: { color: "#d1d5db", fontSize: 12, marginTop: 4 },
+
+  modalOverlay: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "rgba(0,0,0,0.6)",
+  },
+
+  modalContent: {
+    backgroundColor: "#2c2c2c",
+    padding: 24,
+    borderRadius: 12,
+    width: "85%",
+  },
+
+  modalTitle: { fontSize: 18, fontWeight: "700", color: "#fff", marginBottom: 12 },
+
+  closeButton: {
+    marginTop: 12,
+    backgroundColor: "#fff",
+    paddingVertical: 10,
+    borderRadius: 8,
+    alignItems: "center",
+  },
+
   statCard: {
     backgroundColor: "#333",
     padding: 16,
     borderRadius: 12,
     alignItems: "center",
   },
-  statLabel: {
-    color: "#9ca3af",
-    fontSize: 14,
-    marginBottom: 4,
-  },
-  statNumber: {
-    color: "#fff",
-    fontSize: 32,
-    fontWeight: "700",
-  },
-  statSub: {
-    color: "#9ca3af",
-    marginTop: 4,
-    fontSize: 13,
-  },
+
+  statLabel: { color: "#9ca3af", fontSize: 14, marginBottom: 4 },
+
+  statNumber: { color: "#fff", fontSize: 32, fontWeight: "700" },
+
+  statSub: { color: "#9ca3af", marginTop: 4, fontSize: 13 },
 
   rowCard: {
     backgroundColor: "#2a2a2a",
@@ -828,15 +1148,10 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
   },
-  rowLabel: {
-    color: "#9ca3af",
-    fontSize: 15,
-  },
-  rowValue: {
-    color: "#fff",
-    fontWeight: "600",
-    fontSize: 16,
-  },
+
+  rowLabel: { color: "#9ca3af", fontSize: 15 },
+
+  rowValue: { color: "#fff", fontWeight: "600", fontSize: 16 },
 
   statusCard: {
     backgroundColor: "#2c2c2c",
@@ -845,8 +1160,188 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginTop: 6,
   },
-  statusText: {
+
+  statusText: { fontSize: 18, fontWeight: "700" },
+
+  // ✅ Bottom-sheet modal styles
+  sheetOverlay: {
+    flex: 1,
+    justifyContent: "flex-end",
+    backgroundColor: "rgba(0,0,0,0.55)",
+  },
+
+  tooltipModal: {
+    backgroundColor: "#2c2c2c",
+    paddingHorizontal: 18,
+    paddingTop: 10,
+    paddingBottom: 18,
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
+    width: "100%",
+  },
+
+  sheetGrabber: {
+    alignSelf: "center",
+    width: 44,
+    height: 5,
+    borderRadius: 999,
+    backgroundColor: "#4b5563",
+    marginBottom: 10,
+    opacity: 0.9,
+  },
+
+  sheetTitle: {
+    color: "#fff",
     fontSize: 18,
+    fontWeight: "800",
+    textAlign: "center",
+    marginBottom: 6,
+  },
+
+  sheetText: {
+    color: "#d1d5db",
+    fontSize: 14,
+    lineHeight: 20,
+    marginBottom: 12,
+    textAlign: "center",
+  },
+
+  sheetFinePrint: {
+    color: "#9ca3af",
+    fontSize: 12,
+    marginTop: 10,
+    textAlign: "center",
+  },
+
+  sheetButtonRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 12,
+  },
+
+  primaryBtn: {
+    flex: 1,
+    backgroundColor: "#fff",
+    paddingVertical: 12,
+    borderRadius: 12,
+    alignItems: "center",
+  },
+
+  primaryBtnText: {
+    color: "#000",
+    fontWeight: "800",
+    fontSize: 15,
+  },
+
+  secondaryBtn: {
+    flex: 1,
+    backgroundColor: "#1f1f1f",
+    paddingVertical: 12,
+    borderRadius: 12,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#3b3b3b",
+  },
+
+  secondaryBtnText: {
+    color: "#e5e7eb",
+    fontWeight: "800",
+    fontSize: 15,
+  },
+
+  methodRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    justifyContent: "center",
+    marginBottom: 10,
+  },
+
+  methodChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: "#111827",
+    borderWidth: 1,
+    borderColor: "#374151",
+  },
+
+  methodChipActive: {
+    backgroundColor: "#fff",
+    borderColor: "#fff",
+  },
+
+  methodChipText: {
+    color: "#e5e7eb",
+    fontWeight: "800",
+    fontSize: 12,
+  },
+
+  methodChipTextActive: {
+    color: "#000",
+  },
+
+  inputRow: {
+    flexDirection: "row",
+    gap: 12,
+    marginTop: 4,
+  },
+
+  inputLabel: {
+    color: "#9ca3af",
+    fontSize: 12,
+    marginBottom: 6,
+    fontWeight: "700",
+  },
+
+  input: {
+    backgroundColor: "#1f1f1f",
+    borderWidth: 1,
+    borderColor: "#374151",
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    color: "#fff",
+    fontSize: 16,
     fontWeight: "700",
   },
 });
+
+/*
+========================================
+BACKEND PATCH (required for this to work)
+========================================
+
+In your FastAPI endpoint:
+
+@app.put("/metrics/{metric_id}", status_code=200)
+async def update_metric(
+    metric_id: int,
+    weight: Optional[float] = Form(None),
+    taken_at: Optional[str] = Form(None),
+    photo_back: Optional[UploadFile] = None,
+    photo_front: Optional[UploadFile] = None,
+    photo_side: Optional[UploadFile] = None
+
+ADD THESE OPTIONAL FIELDS:
+    fat_percent: Optional[float] = Form(None),
+    skeletal_muscle_percent: Optional[float] = Form(None),
+    verified_method: Optional[str] = Form(None),
+
+Then inside update_metric, BEFORE "if all_preds:" block,
+apply manual override if provided (and skip inference override unless photos given):
+
+    if fat_percent is not None:
+        metric.fat_percent = float(fat_percent)
+
+    if skeletal_muscle_percent is not None:
+        metric.skeletal_muscle_percent = float(skeletal_muscle_percent)
+
+    if fat_percent is not None and (weight or metric.weight):
+        metric.fat_mass = (float(fat_percent) / 100.0) * float(weight or metric.weight)
+
+    if skeletal_muscle_percent is not None and (weight or metric.weight):
+        metric.skeletal_muscle_pounds = (float(skeletal_muscle_percent) / 100.0) * float(weight or metric.weight)
+
+Optionally persist method (add columns) or ignore.
+*/

@@ -220,8 +220,19 @@ export default function UploadScreen() {
       if (!saved) return;
       const parsed = JSON.parse(saved);
       setUser(parsed);
+      console.log(parsed)
       setUserId(parsed.id?.toString?.() ?? "");
-      setHeight(parsed.height ?? "");
+
+      if (!('height' in parsed)) {
+        const res = await fetch(`${API_URL}/users/${parsed.id}`);
+        if (res.ok) {
+          const data = await res.json();
+          setHeight(data.height);
+        }
+      }
+      else {
+      setHeight(parsed.height);
+      }
     };
     loadUser();
   }, []);

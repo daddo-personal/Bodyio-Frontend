@@ -3,6 +3,7 @@ import { Text, TextInput, TouchableOpacity, Alert } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Constants from "expo-constants";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
 
 const API_URL = Constants.expoConfig.extra.apiUrl;
 
@@ -47,6 +48,10 @@ export default function ResetPassword() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: "#1f1f1f", padding: 16 }}>
+      <TouchableOpacity onPress={() => router.back()} style={{ marginBottom: 50 }}>
+        <Ionicons name="chevron-back" size={28} color="#fff" />
+      </TouchableOpacity>
+
       <Text style={{ color: "#fff", fontSize: 24, fontWeight: "700", marginBottom: 12 }}>
         Reset Password
       </Text>

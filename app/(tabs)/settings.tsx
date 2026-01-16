@@ -1,4 +1,4 @@
-import * as FileSystem from 'expo-file-system/legacy';
+import * as FileSystem from "expo-file-system/legacy";
 import * as Sharing from "expo-sharing";
 import React, { useCallback, useEffect, useState } from "react";
 import {
@@ -10,8 +10,8 @@ import {
   TextInput,
   TouchableOpacity,
   View,
+  Platform,
 } from "react-native";
-
 
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect } from "@react-navigation/native";
@@ -66,7 +66,7 @@ export default function SettingsScreen() {
       async function loadUser() {
         try {
           const saved = await AsyncStorage.getItem("user");
-          console.log("Saved is: ", saved)
+          console.log("Saved is: ", saved);
           if (!saved) {
             Alert.alert("Not logged in", "Please log in first.");
             router.replace("/auth");
@@ -74,6 +74,27 @@ export default function SettingsScreen() {
           }
 
           const parsed = JSON.parse(saved);
+
+          // 🔹 1) Call verify_premium for this user + platform
+          try {
+            const verifyUrl = `${API_URL}/users/${parsed.id}/${Platform.OS}/verify_premium`;
+            console.log("Calling verify_premium:", verifyUrl);
+
+            const resVerify = await fetch(verifyUrl);
+            console.log("verify_premium status:", resVerify.status);
+
+            let verifyBody: any = null;
+            try {
+              verifyBody = await resVerify.json();
+            } catch {
+              // no-op if body is empty / not JSON
+            }
+            console.log("verify_premium response body:", verifyBody);
+          } catch (err) {
+            console.log("verify_premium error:", err);
+          }
+
+          // 🔹 2) Fetch fresh user from backend
           const res = await fetch(`${API_URL}/users/${parsed.id}`);
 
           if (res.ok) {
@@ -82,6 +103,7 @@ export default function SettingsScreen() {
             setFirstName(data.first_name || "");
             setLastName(data.last_name || "");
             setEmail(data.email || "");
+
             const h = Number(data.height);
             if (!Number.isNaN(h) && h > 0) {
               const ft = Math.floor(h / 12);
@@ -92,15 +114,28 @@ export default function SettingsScreen() {
               setHeightFeet("");
               setHeightInches("");
             }
+
             setWeight(data.weight?.toString() || "");
 
             await AsyncStorage.setItem("user", JSON.stringify(data));
           } else {
+            // Fallback to saved user if /users/{id} fails
             setUser(parsed);
             setFirstName(parsed.first_name || "");
             setLastName(parsed.last_name || "");
             setEmail(parsed.email || "");
-            setHeight(parsed.height?.toString() || "");
+
+            const h = Number(parsed.height);
+            if (!Number.isNaN(h) && h > 0) {
+              const ft = Math.floor(h / 12);
+              const inch = h % 12;
+              setHeightFeet(String(ft));
+              setHeightInches(String(inch));
+            } else {
+              setHeightFeet("");
+              setHeightInches("");
+            }
+
             setWeight(parsed.weight?.toString() || "");
           }
         } catch (e) {
@@ -114,7 +149,6 @@ export default function SettingsScreen() {
       loadUser();
     }, [router])
   );
-
 
   const handleDownloadData = async () => {
     if (!user) return;
@@ -135,7 +169,7 @@ export default function SettingsScreen() {
       }
 
       // 2. Get raw CSV text
-      const csvText = await res.text();   // <-- THIS FIXES IT
+      const csvText = await res.text();
 
       // 3. Save CSV locally
       const fileUri = `${FileSystem.documentDirectory}metrics_${selectedYear}.csv`;
@@ -150,7 +184,6 @@ export default function SettingsScreen() {
         dialogTitle: `Your Metrics Data (${selectedYear})`,
         UTI: "public.comma-separated-values-text",
       });
-
     } catch (err) {
       console.error("CSV download error:", err);
       Alert.alert("Error", "Failed to download your data.");
@@ -188,37 +221,7 @@ export default function SettingsScreen() {
     ensureRevenueCatUser();
   }, [user?.id]);
 
-  // -------------------------------------------
-  // Self-heal premium from RevenueCat backend (/verify_premium)
-  // -------------------------------------------
-  useEffect(() => {
-    async function syncPremiumFromBackend() {
-      if (!user?.id) return;
-
-      try {
-        const res = await fetch(`${API_URL}/users/${user.id}/verify_premium`);
-        if (!res.ok) {
-          console.log("verify_premium failed:", res.status);
-          return;
-        }
-        const data = await res.json();
-        console.log("verify_premium response:", data);
-
-        // If backend updated is_premium, refetch user
-        const userRes = await fetch(`${API_URL}/users/${user.id}`);
-        if (userRes.ok) {
-          const updatedUser = await userRes.json();
-          setUser(updatedUser);
-          await AsyncStorage.setItem("user", JSON.stringify(updatedUser));
-          console.log("User after verify_premium sync:", updatedUser);
-        }
-      } catch (e) {
-        console.log("Error syncing premium from backend:", e);
-      }
-    }
-
-    syncPremiumFromBackend();
-  }, [user?.id]);
+  // ⚠️ Removed old syncPremiumFromBackend useEffect here
 
   // -------------------------------------------
   // Real-time subscription refresh listener
@@ -234,7 +237,6 @@ export default function SettingsScreen() {
           if (res.ok) {
             const updated = await res.json();
             setUser(updated);
-            //await AsyncStorage.setItem("user", JSON.stringify(updated));
             console.log("🔥 User refreshed after purchase", updated);
           }
         } catch (err) {
@@ -273,7 +275,6 @@ export default function SettingsScreen() {
     }
 
     try {
-
       const feet = parseInt(heightFeet, 10);
       const inches = parseInt(heightInches, 10);
 
@@ -286,8 +287,7 @@ export default function SettingsScreen() {
         return;
       }
 
-      const totalHeightInches =
-       parseInt(heightFeet) * 12 + parseInt(heightInches);
+      const totalHeightInches = feet * 12 + inches;
 
       const res = await fetch(`${API_URL}/users/${user.id}`, {
         method: "PUT",
@@ -374,7 +374,7 @@ export default function SettingsScreen() {
                   <View
                     style={{
                       width: `${Math.min(
-                        (((user?.scan_count ?? 0) / 5) * 100),
+                        ((user?.scan_count ?? 0) / 5) * 100,
                         100
                       )}%`,
                       height: "100%",
@@ -400,7 +400,6 @@ export default function SettingsScreen() {
           {/* PRICING OPTIONS */}
           {!isPremium && (
             <View style={{ marginTop: 24, width: "100%" }}>
-
               {/* Shared features list */}
               <View
                 style={{
@@ -412,14 +411,23 @@ export default function SettingsScreen() {
                   marginBottom: 20,
                 }}
               >
-                <Text style={{ color: "#fff", fontSize: 16, fontWeight: "700", marginBottom: 10 }}>
+                <Text
+                  style={{
+                    color: "#fff",
+                    fontSize: 16,
+                    fontWeight: "700",
+                    marginBottom: 10,
+                  }}
+                >
                   Premium Features
                 </Text>
 
                 <Text style={styles.bullet}>• Unlimited Scans</Text>
                 <Text style={styles.bullet}>• All Body Metrics</Text>
                 <Text style={styles.bullet}>• CSV Data Downloads</Text>
-                <Text style={styles.bullet}>• Goals & Insights for all metrics</Text>
+                <Text style={styles.bullet}>
+                  • Goals & Insights for all metrics
+                </Text>
               </View>
 
               {offerings?.availablePackages?.map((pkg) => {
@@ -519,7 +527,9 @@ export default function SettingsScreen() {
                           fontWeight: "600",
                         }}
                       >
-                        {isMonthly ? "Choose Monthly Plan" : "Choose Yearly Plan"}
+                        {isMonthly
+                          ? "Choose Monthly Plan"
+                          : "Choose Yearly Plan"}
                       </Text>
                     </View>
                   </TouchableOpacity>
@@ -527,13 +537,12 @@ export default function SettingsScreen() {
               })}
             </View>
           )}
-
         </View>
 
         {/* PROFILE INFO */}
         <View style={styles.card}>
           <Text style={styles.sectionTitle}>👤 Profile Info</Text>
-          
+
           <Text style={styles.label}>First Name</Text>
           <TextInput
             value={firstName}
@@ -566,29 +575,34 @@ export default function SettingsScreen() {
             style={styles.input}
           />
 
-<Text style={styles.label}>Height</Text>
+          <Text style={styles.label}>Height</Text>
 
-<View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 12 }}>
-  <TextInput
-    value={heightFeet}
-    onChangeText={setHeightFeet}
-    editable={editing}
-    placeholder="Feet"
-    placeholderTextColor="#9ca3af"
-    keyboardType="numeric"
-    style={[styles.input, { width: "48%" }]}
-  />
-  <TextInput
-    value={heightInches}
-    onChangeText={setHeightInches}
-    editable={editing}
-    placeholder="Inches"
-    placeholderTextColor="#9ca3af"
-    keyboardType="numeric"
-    style={[styles.input, { width: "48%" }]}
-  />
-</View>
-
+          <View
+            style={{
+              flexDirection: "row",
+              justifyContent: "space-between",
+              marginBottom: 12,
+            }}
+          >
+            <TextInput
+              value={heightFeet}
+              onChangeText={setHeightFeet}
+              editable={editing}
+              placeholder="Feet"
+              placeholderTextColor="#9ca3af"
+              keyboardType="numeric"
+              style={[styles.input, { width: "48%" }]}
+            />
+            <TextInput
+              value={heightInches}
+              onChangeText={setHeightInches}
+              editable={editing}
+              placeholder="Inches"
+              placeholderTextColor="#9ca3af"
+              keyboardType="numeric"
+              style={[styles.input, { width: "48%" }]}
+            />
+          </View>
 
           {!editing ? (
             <TouchableOpacity
@@ -663,28 +677,23 @@ export default function SettingsScreen() {
         {/* LOG OUT */}
         <TouchableOpacity
           onPress={() => {
-            Alert.alert(
-              "Log Out",
-              "Are you sure you want to log out?",
-              [
-                { text: "Cancel", style: "cancel" },
-                {
-                  text: "Log Out",
-                  style: "destructive",
-                  onPress: async () => {
-                    await AsyncStorage.removeItem("user");
-                    await Purchases.logOut().catch(() => { });
-                    router.replace("/auth");
-                  },
+            Alert.alert("Log Out", "Are you sure you want to log out?", [
+              { text: "Cancel", style: "cancel" },
+              {
+                text: "Log Out",
+                style: "destructive",
+                onPress: async () => {
+                  await AsyncStorage.removeItem("user");
+                  await Purchases.logOut().catch(() => {});
+                  router.replace("/auth");
                 },
-              ]
-            );
+              },
+            ]);
           }}
           style={[styles.button, { backgroundColor: "#fff" }]}
         >
           <Text style={[styles.buttonText, { color: "#000" }]}>Log Out</Text>
         </TouchableOpacity>
-
       </ScrollView>
     </SafeAreaView>
   );
@@ -765,9 +774,9 @@ const styles = {
     fontSize: 16,
   },
   label: {
-  color: "#9ca3af",
-  fontSize: 13,
-  marginBottom: 6,
-  marginLeft: 4,
-},
+    color: "#9ca3af",
+    fontSize: 13,
+    marginBottom: 6,
+    marginLeft: 4,
+  },
 };

@@ -1,6 +1,6 @@
 import React from "react";
 import Onboarding from "react-native-onboarding-swiper";
-import { View, Image } from "react-native"; // ✅ added View here
+import { View, Image } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
 
@@ -29,6 +29,7 @@ export default function OnboardingScreen() {
         textAlign: "center",
         color: "#9ca3af",
         paddingHorizontal: 16,
+        lineHeight: 22,
       }}
       bottomBarHighlight={false}
       transitionAnimationDuration={400}
@@ -52,9 +53,9 @@ export default function OnboardingScreen() {
               style={{ width: 250, height: 250, resizeMode: "contain" }}
             />
           ),
-          title: "🕶️ Good Lighting & Plain Background",
+          title: "💡 Lighting & Background",
           subtitle:
-            "Ensure you’re in a well-lit area with an uncluttered, plain background. No shadows",
+            "Choose a bright, evenly lit space with a plain background. Avoid shadows or harsh lighting on your body.",
         },
         {
           backgroundColor: "#1f1f1f",
@@ -64,8 +65,9 @@ export default function OnboardingScreen() {
               style={{ width: 250, height: 250, resizeMode: "contain" }}
             />
           ),
-          title: "📸 Front Pose",
-          subtitle: "Stand tall and face forward for your front photo, with relaxed arms.",
+          title: "📸 Front Photo",
+          subtitle:
+            "Stand facing the camera with relaxed arms. Frame your body from head to just below the knees — do not include your feet.",
         },
         {
           backgroundColor: "#1f1f1f",
@@ -75,8 +77,9 @@ export default function OnboardingScreen() {
               style={{ width: 250, height: 250, resizeMode: "contain" }}
             />
           ),
-          title: "↔️ Side Pose",
-          subtitle: "Turn to the side and capture a clear side profile, with relaxed arms.",
+          title: "↔️ Side Photo",
+          subtitle:
+            "Turn sideways with relaxed arms. Frame your body from head to just below the knees — do not include your feet.",
         },
         {
           backgroundColor: "#1f1f1f",
@@ -86,8 +89,9 @@ export default function OnboardingScreen() {
               style={{ width: 250, height: 250, resizeMode: "contain" }}
             />
           ),
-          title: "🔙 Back Pose",
-          subtitle: "Face away from the camera and take your final photo, with relaxed arms.",
+          title: "🔙 Back Photo",
+          subtitle:
+            "Face away from the camera with relaxed arms. Frame your body from head to just below the knees — do not include your feet.",
         },
       ]}
       DotComponent={({ selected }) => (
