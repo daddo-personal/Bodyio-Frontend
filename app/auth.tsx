@@ -23,7 +23,7 @@ import Purchases from "react-native-purchases";
 const API_URL = Constants.expoConfig.extra.apiUrl;
 
 WebBrowser.maybeCompleteAuthSession();
-
+console.log(API_URL)
 export default function AuthScreen() {
   const router = useRouter();
   const [email, setEmail] = useState("");

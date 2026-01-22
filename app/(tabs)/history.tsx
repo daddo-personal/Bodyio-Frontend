@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useRef } from "react";
 import {
   View,
   Text,
@@ -14,6 +14,10 @@ import Constants from "expo-constants";
 import { useRouter } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
 import { DateTime } from "luxon";
+import { Swipeable, RectButton } from "react-native-gesture-handler";
+import { Ionicons } from "@expo/vector-icons";
+
+// inside MetricsHistory component
 
 const API_URL = Constants.expoConfig.extra.apiUrl;
 
@@ -33,6 +37,8 @@ export default function MetricsHistory() {
   const [isPremium, setIsPremium] = useState(false);
   const [weightUnit, setWeightUnit] = useState<"lbs" | "kg">("lbs");
   const router = useRouter();
+  const [rowHeights, setRowHeights] = useState<Record<string, number>>({});
+  const [showSwipeTipHistory, setShowSwipeTipHistory] = useState(false);
 
   const fetchMetrics = async () => {
     setLoading(true);
@@ -68,6 +74,17 @@ export default function MetricsHistory() {
     }
   };
 
+
+  useFocusEffect(
+    useCallback(() => {
+      async function checkSwipeTip() {
+        const seen = await AsyncStorage.getItem("seen_swipe_tip_history");
+        if (!seen) setShowSwipeTipHistory(true);
+      }
+      checkSwipeTip();
+    }, [])
+  );
+
   useFocusEffect(
     useCallback(() => {
       async function loadUnit() {
@@ -92,6 +109,43 @@ export default function MetricsHistory() {
       fetchMetrics();
     }, [])
   );
+
+  const goEdit = (metricObj: any) => {
+    router.push({
+      pathname: "/editmetric",
+      params: { metric: JSON.stringify(metricObj) },
+    });
+  };
+
+  const confirmDelete = (id: string) => {
+    handleDelete(id); // your existing Alert + delete logic
+  };
+
+  const renderLeftActions = (item: any, height?: number) => {
+    return (
+      <View style={[styles.swipeActionLeftWrap, height ? { height } : null]}>
+        <RectButton style={[styles.swipeActionButton, styles.swipeEdit]} onPress={() => goEdit(item)}>
+          <Ionicons name="create" size={22} color="#fff" />
+          <Text style={styles.swipeActionText}>Edit</Text>
+        </RectButton>
+      </View>
+    );
+  };
+
+  const renderRightActions = (item: any, height?: number) => {
+    return (
+      <View style={[styles.swipeActionRightWrap, height ? { height } : null]}>
+        <RectButton
+          style={[styles.swipeActionButton, styles.swipeDelete]}
+          onPress={() => confirmDelete(item.id)}
+        >
+          <Ionicons name="trash" size={22} color="#fff" />
+          <Text style={styles.swipeActionText}>Delete</Text>
+        </RectButton>
+      </View>
+    );
+  };
+
 
   const handleDelete = (id: string) => {
     Alert.alert(
@@ -170,98 +224,76 @@ export default function MetricsHistory() {
       <ScrollView contentContainerStyle={styles.container}>
         <Text style={styles.title}>📊 Your Progress History</Text>
 
+        {showSwipeTipHistory && (
+          <View style={styles.swipeTip}>
+            <Ionicons name="swap-horizontal" size={18} color="#fff" />
+            <Text style={styles.swipeTipText}>
+              Tip: Swipe right to edit • Swipe left to delete
+            </Text>
+
+            <TouchableOpacity
+              onPress={async () => {
+                await AsyncStorage.setItem("seen_swipe_tip_history", "true");
+                setShowSwipeTipHistory(false);
+              }}
+              style={styles.swipeTipBtn}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.swipeTipBtnText}>Got it</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+
         {metrics.length === 0 && (
           <Text style={styles.emptyText}>No metrics recorded yet.</Text>
         )}
 
-        {metrics.map((m) => (
-          <View key={m.id} style={styles.card}>
-            <Text style={styles.date}>{formatLocalDate(m.taken_at)}</Text>
+        {metrics.map((m) => {
+          const rowH = rowHeights[m.id];
 
-            <View style={styles.metricsGrid}>
-              {METRICS.map((metric) => {
-                const value = m[metric.key];
-                if (value == null) return null;
+          return (
+            <View key={m.id} style={styles.rowWrap}>
+              <Swipeable
+                renderLeftActions={() => renderLeftActions(m, rowH)}
+                renderRightActions={() => renderRightActions(m, rowH)}
+                overshootLeft={false}
+                overshootRight={false}
+              >
+                <View
+                  style={styles.card}
+                  onLayout={(e) => {
+                    const h = e.nativeEvent.layout.height;
+                    setRowHeights((prev) => (prev[m.id] === h ? prev : { ...prev, [m.id]: h }));
+                  }}
+                >
+                  <Text style={styles.date}>{formatLocalDate(m.taken_at)}</Text>
 
-                const isLocked = metric.premium && !isPremium;
+                  <View style={styles.metricsGrid}>
+                    {METRICS.map((metric) => {
+                      const value = m[metric.key];
+                      if (value == null) return null;
 
-                return (
-                  <View key={metric.key} style={styles.metricTile}>
-                    <Text style={styles.metricTileLabel}>{metric.label}</Text>
-
-                    {isLocked ? (
-                      <View
-                        style={{
-                          position: "relative",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          height: 28,
-                          marginTop: 4,
-                        }}
-                      >
-                        {[...Array(6)].map((_, i) => (
-                          <View
-                            key={i}
-                            style={{
-                              position: "absolute",
-                              width: 28,
-                              height: 28,
-                              borderRadius: 14,
-                              backgroundColor: "rgba(0,0,0,0.5)",
-                              blurRadius: 10,
-                              transform: [
-                                { translateX: (Math.random() - 0.5) * 12 },
-                                { translateY: (Math.random() - 0.5) * 12 },
-                              ],
-                            }}
-                          />
-                        ))}
-                        <Text style={[styles.metricTileValue, { opacity: 0 }]}>
-                          {metric.key === "weight"
-                            ? formatWeight(value)
-                            : metric.type === "percent"
-                              ? `${value.toFixed(1)}%`
-                              : value.toFixed(1)}
-                        </Text>
-                      </View>
-                    ) : (
-                      <Text style={styles.metricTileValue}>
-                        {metric.key === "weight"
-                          ? formatWeight(value)
-                          : metric.type === "percent"
-                            ? `${value.toFixed(1)}%`
-                            : value.toFixed(1)}
-                      </Text>
-                    )}
+                      return (
+                        <View key={metric.key} style={styles.metricTile}>
+                          <Text style={styles.metricTileLabel}>{metric.label}</Text>
+                          <Text style={styles.metricTileValue}>
+                            {metric.key === "weight"
+                              ? formatWeight(value)
+                              : metric.type === "percent"
+                                ? `${value.toFixed(1)}%`
+                                : value.toFixed(1)}
+                          </Text>
+                        </View>
+                      );
+                    })}
                   </View>
-                );
-              })}
-
+                </View>
+              </Swipeable>
             </View>
+          );
+        })}
 
-            {/* Buttons */}
-            <View style={styles.buttonRow}>
-              <TouchableOpacity
-                style={[styles.button, { backgroundColor: "#dc2626" }]}
-                onPress={() => handleDelete(m.id)}
-              >
-                <Text style={styles.buttonText}>Delete</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.button, { backgroundColor: "#ffffffff" }]}
-                onPress={() =>
-                  router.push({
-                    pathname: "/editmetric",
-                    params: { metric: JSON.stringify(m) },
-                  })
-                }
-              >
-                <Text style={styles.buttonEditText}>Edit</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        ))}
       </ScrollView>
     </SafeAreaView>
   );
@@ -316,6 +348,83 @@ const styles = StyleSheet.create({
     color: "#000",
     fontSize: 16,
     fontWeight: "700",
+  },
+  swipeActionLeftWrap: {
+    justifyContent: "center",
+    alignItems: "flex-start",
+    marginBottom: 16,
+    borderRadius: 12,
+    overflow: "hidden",
+  },
+
+  swipeActionRightWrap: {
+    justifyContent: "center",
+    alignItems: "flex-end",
+    marginBottom: 16,
+    borderRadius: 12,
+    overflow: "hidden",
+  },
+
+  swipeActionButton: {
+    width: 120,
+    height: "100%",
+    justifyContent: "center",
+    alignItems: "center",
+    gap: 6,
+    paddingVertical: 18, // better than height:"100%" for Android
+  },
+
+  swipeEdit: { backgroundColor: "#2563eb" },   // blue
+  swipeDelete: { backgroundColor: "#dc2626" }, // red
+
+  swipeActionText: {
+    color: "#fff",
+    fontWeight: "800",
+    fontSize: 12,
+  },
+
+  rowWrap: {
+    marginBottom: 16,
+    borderRadius: 12,
+    overflow: "hidden", // 👈 makes swipe bg + card share same rounding
+  },
+
+  card: {
+    backgroundColor: "#2c2c2c",
+    borderRadius: 0,
+    padding: 16,
+    marginBottom: 0,
+  },
+
+  swipeTip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "#333",
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    marginBottom: 14,
+  },
+
+  swipeTipText: {
+    flex: 1,
+    color: "#e5e7eb",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+
+  swipeTipBtn: {
+    backgroundColor: "#fff",
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 999,
+  },
+
+  swipeTipBtnText: {
+    color: "#000",
+    fontWeight: "800",
+    fontSize: 12,
   },
 
 });

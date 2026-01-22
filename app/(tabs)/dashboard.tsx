@@ -70,6 +70,9 @@ const METRICS = [
   { key: "skeletal_muscle_percent", label: "Muscle %", type: "percent", premium: true, unitType: "percent" },
 ];
 
+type MetricKey = "weight" | "bmi" | "fat_percent" | "skeletal_muscle_percent";
+type MetricFilter = "all" | MetricKey;
+
 export default function DashboardScreen() {
   const router = useRouter();
   const scrollViewRef = useRef<ScrollView | null>(null);
@@ -109,6 +112,7 @@ export default function DashboardScreen() {
   const [verifyFat, setVerifyFat] = useState<string>("");
   const [verifyMuscle, setVerifyMuscle] = useState<string>("");
   const [savingVerify, setSavingVerify] = useState(false);
+  const [goalMetricFilter, setGoalMetricFilter] = useState<MetricFilter>("all");
 
   const startGlow = () => {
     Animated.sequence([
@@ -284,6 +288,12 @@ export default function DashboardScreen() {
     }
   };
 
+  useEffect(() => {
+    if (!isPremium && (goalMetricFilter === "fat_percent" || goalMetricFilter === "skeletal_muscle_percent")) {
+      setGoalMetricFilter("all");
+    }
+  }, [isPremium, goalMetricFilter]);
+
   // ----------------------
   // Glow flag
   // ----------------------
@@ -442,7 +452,9 @@ export default function DashboardScreen() {
       const fetchGoals = async () => {
         try {
           const goalsRes = await fetch(`${API_URL}/goals/${userId}`);
-          const goalsJson = goalsRes.ok ? await goalsRes.json() : [];
+          const goalsJsonRaw = goalsRes.ok ? await goalsRes.json() : [];
+          const goalsJson = (goalsJsonRaw || []).filter((g: any) => (g.status ?? "active") === "active");
+
 
           const metricsPromises = goalsJson.map((goal) =>
             fetch(`${API_URL}/metrics?user_id=${userId}&metric=${goal.metric}&metric_range=max`)
@@ -513,6 +525,26 @@ export default function DashboardScreen() {
     }
   };
 
+
+  const toNum = (v: any) => {
+    const n = typeof v === "number" ? v : Number(v);
+    return Number.isFinite(n) ? n : null;
+  };
+
+  const fmt = (v: any, decimals: number) => {
+    const n = toNum(v);
+    if (n == null) return "—";
+    return n.toFixed(decimals);
+  };
+
+  const fmtSigned = (v: any, decimals: number) => {
+    const n = toNum(v);
+    if (n == null) return "—";
+    const sign = n >= 0 ? "+" : "-";
+    return `${sign}${Math.abs(n).toFixed(decimals)}`;
+  };
+
+
   // ----------------------
   // Prepare chart data
   // ----------------------
@@ -561,6 +593,10 @@ export default function DashboardScreen() {
     if (clamped <= 75) return "#facc15";
     return "#16a34a";
   };
+
+  const filteredActiveGoals =
+    goalMetricFilter === "all" ? goals : goals.filter((g) => g.metric === goalMetricFilter);
+
 
   // ----------------------
   // Loading state
@@ -874,38 +910,84 @@ export default function DashboardScreen() {
           {goals.length > 0 ? (
             <>
               <Text style={styles.subtext}>🎯 Your Goals</Text>
-              {goals.map((g) => (
-                <TouchableOpacity
-                  key={g.id}
-                  activeOpacity={0.8}
-                  onPress={() => openGoalDetails(g)}
-                  style={styles.goalCard}
-                >
-                  <Text style={styles.goalText}>
-                    {METRICS.find((m) => m.key === g.metric)?.label}: {g.target_value}
-                    {g.metric.includes("percent") ? "%" : ""} by {g.target_date.split("T")[0]}
-                  </Text>
 
-                  <View style={styles.progressBarBackground}>
-                    <View
+              {/* ✅ Metric filter for ACTIVE goals */}
+              <View style={styles.goalFilterRow}>
+                {(
+                  [
+                    { key: "all", label: "All", premium: false },
+                    { key: "weight", label: "Weight", premium: false },
+                    { key: "bmi", label: "BMI", premium: false },
+                    { key: "fat_percent", label: "Fat %", premium: true },
+                    { key: "skeletal_muscle_percent", label: "Muscle %", premium: true },
+                  ] as { key: MetricFilter; label: string; premium: boolean }[]
+                ).map((m) => {
+                  const selected = goalMetricFilter === m.key;
+                  const disabled = m.premium && !isPremium;
+
+                  return (
+                    <TouchableOpacity
+                      key={m.key}
+                      disabled={disabled}
+                      onPress={() => !disabled && setGoalMetricFilter(m.key)}
                       style={[
-                        styles.progressBarFill,
-                        {
-                          width: `${g.progress ?? 0}%`,
-                          backgroundColor: getProgressColor(g.progress ?? 0),
-                        },
+                        styles.goalFilterPill,
+                        selected && styles.goalFilterPillActive,
+                        disabled && { opacity: 0.4 },
                       ]}
-                    />
-                  </View>
+                      activeOpacity={0.85}
+                    >
+                      <Text
+                        style={[
+                          styles.goalFilterPillText,
+                          selected && styles.goalFilterPillTextActive,
+                        ]}
+                      >
+                        {m.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
 
-                  <Text style={styles.progressText}>{g.progress?.toFixed(1) ?? 0}% complete</Text>
-                </TouchableOpacity>
-              ))}
+              {/* ✅ Render filtered goals */}
+              {filteredActiveGoals.length > 0 ? (
+                filteredActiveGoals.map((g) => (
+                  <TouchableOpacity
+                    key={g.id}
+                    activeOpacity={0.8}
+                    onPress={() => openGoalDetails(g)}
+                    style={styles.goalCard}
+                  >
+                    <Text style={styles.goalText}>
+                      {METRICS.find((m) => m.key === g.metric)?.label}: {g.target_value}
+                      {g.metric.includes("percent") ? "%" : ""} by {g.target_date.split("T")[0]}
+                    </Text>
+
+                    <View style={styles.progressBarBackground}>
+                      <View
+                        style={[
+                          styles.progressBarFill,
+                          {
+                            width: `${g.progress ?? 0}%`,
+                            backgroundColor: getProgressColor(g.progress ?? 0),
+                          },
+                        ]}
+                      />
+                    </View>
+
+                    <Text style={styles.progressText}>{g.progress?.toFixed(1) ?? 0}% complete</Text>
+                  </TouchableOpacity>
+                ))
+              ) : (
+                <Text style={styles.noDataText}>No goals in this filter.</Text>
+              )}
             </>
           ) : (
             <Text style={styles.noDataText}>No goals yet - try setting a new goal!</Text>
           )}
         </View>
+
 
         {/* 🔹 Goal Modal */}
         <Modal visible={showModal} animationType="slide" transparent onRequestClose={() => setShowModal(false)}>
@@ -924,64 +1006,80 @@ export default function DashboardScreen() {
                     const perWeek = perWeekUnitForMetric(selectedGoal.metric, weightUnit);
                     const decimals = selectedGoal.metric === "bmi" ? 2 : 1;
 
+                    const predicted = toNum(goalProgress.predicted_value);
+                    const diff = toNum(goalProgress.difference_to_goal);
+                    const weekly = toNum(goalProgress.weekly_change);
+                    const required = toNum(goalProgress.required_weekly_change);
+
+                    const hasAnyNumbers = predicted != null || diff != null || weekly != null || required != null;
+
+                    if (!hasAnyNumbers) {
+                      return (
+                        <View style={{ gap: 12 }}>
+                          <Text style={{ color: "#9ca3af", textAlign: "center" }}>
+                            Not enough history yet to calculate projections. Add a few more scans for this metric.
+                          </Text>
+                        </View>
+                      );
+                    }
+
                     return (
                       <View style={{ gap: 16 }}>
-                        <View style={styles.statCard}>
-                          <Text style={styles.statLabel}>Projected Value</Text>
-                          <Text style={styles.statNumber}>
-                            {goalProgress.predicted_value?.toFixed(decimals)}
-                            {unit ? ` ${unit}` : ""}
-                          </Text>
-                          <Text style={styles.statSub}>by {formatLongDate(selectedGoal.target_date)}</Text>
-                        </View>
+                        {/* Projected Value */}
+                        {predicted != null && (
+                          <View style={styles.statCard}>
+                            <Text style={styles.statLabel}>Projected Value</Text>
+                            <Text style={styles.statNumber}>
+                              {predicted.toFixed(decimals)}
+                              {unit ? ` ${unit}` : ""}
+                            </Text>
+                            <Text style={styles.statSub}>by {formatLongDate(selectedGoal.target_date)}</Text>
+                          </View>
+                        )}
 
-                        <View style={styles.rowCard}>
-                          <Text style={styles.rowLabel}>Remaining</Text>
-                          <Text style={[styles.rowValue, { color: "#fff" }]}>
-                            {Math.abs(goalProgress.difference_to_goal).toFixed(decimals)}
-                            {unit ? ` ${unit}` : ""}
-                          </Text>
-                        </View>
+                        {/* Remaining */}
+                        {diff != null && (
+                          <View style={styles.rowCard}>
+                            <Text style={styles.rowLabel}>Remaining</Text>
+                            <Text style={[styles.rowValue, { color: "#fff" }]}>
+                              {Math.abs(diff).toFixed(decimals)}
+                              {unit ? ` ${unit}` : ""}
+                            </Text>
+                          </View>
+                        )}
 
-                        <View style={styles.rowCard}>
-                          <Text style={styles.rowLabel}>Your Weekly Trend</Text>
-                          <Text
-                            style={[
-                              styles.rowValue,
-                              { color: goalProgress.weekly_change >= 0 ? "#16a34a" : "#dc2626" },
-                            ]}
-                          >
-                            {goalProgress.weekly_change >= 0 ? "+" : "-"}
-                            {Math.abs(goalProgress.weekly_change).toFixed(2)} {perWeek}
-                          </Text>
-                        </View>
+                        {/* Your Weekly Trend */}
+                        {weekly != null && (
+                          <View style={styles.rowCard}>
+                            <Text style={styles.rowLabel}>Your Weekly Trend</Text>
+                            <Text style={[styles.rowValue, { color: weekly >= 0 ? "#16a34a" : "#dc2626" }]}>
+                              {fmtSigned(weekly, 2)} {perWeek}
+                            </Text>
+                          </View>
+                        )}
 
-                        <View style={styles.rowCard}>
-                          <Text style={styles.rowLabel}>Required Weekly Pace</Text>
-                          <Text
-                            style={[
-                              styles.rowValue,
-                              { color: goalProgress.required_weekly_change >= 0 ? "#16a34a" : "#dc2626" },
-                            ]}
-                          >
-                            {goalProgress.required_weekly_change >= 0 ? "+" : "-"}
-                            {Math.abs(goalProgress.required_weekly_change).toFixed(2)} {perWeek}
-                          </Text>
-                        </View>
+                        {/* Required Weekly Pace */}
+                        {required != null && (
+                          <View style={styles.rowCard}>
+                            <Text style={styles.rowLabel}>Required Weekly Pace</Text>
+                            <Text style={[styles.rowValue, { color: required >= 0 ? "#16a34a" : "#dc2626" }]}>
+                              {fmtSigned(required, 2)} {perWeek}
+                            </Text>
+                          </View>
+                        )}
 
-                        <View style={styles.statusCard}>
-                          <Text
-                            style={[
-                              styles.statusText,
-                              { color: goalProgress.on_track ? "#16a34a" : "#dc2626" },
-                            ]}
-                          >
-                            {goalProgress.on_track ? "On Track" : "Not On Track"}
-                          </Text>
-                        </View>
+                        {/* Status */}
+                        {typeof goalProgress.on_track === "boolean" && (
+                          <View style={styles.statusCard}>
+                            <Text style={[styles.statusText, { color: goalProgress.on_track ? "#16a34a" : "#dc2626" }]}>
+                              {goalProgress.on_track ? "On Track" : "Not On Track"}
+                            </Text>
+                          </View>
+                        )}
                       </View>
                     );
                   })()}
+
 
                   <TouchableOpacity style={styles.closeButton} onPress={() => setShowModal(false)}>
                     <Text style={{ color: "#000", fontWeight: "600" }}>Close</Text>
@@ -1347,4 +1445,37 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "700",
   },
+
+  goalFilterRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "center",
+    gap: 10,
+    marginBottom: 12,
+  },
+
+  goalFilterPill: {
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 999,
+    backgroundColor: "#2c2c2c",
+    borderWidth: 1,
+    borderColor: "#333",
+  },
+
+  goalFilterPillActive: {
+    backgroundColor: "#fff",
+    borderColor: "#fff",
+  },
+
+  goalFilterPillText: {
+    color: "#9ca3af",
+    fontWeight: "800",
+    fontSize: 12,
+  },
+
+  goalFilterPillTextActive: {
+    color: "#000",
+  },
+
 });
