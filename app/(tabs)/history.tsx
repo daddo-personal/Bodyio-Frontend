@@ -77,12 +77,22 @@ export default function MetricsHistory() {
 
   useFocusEffect(
     useCallback(() => {
-      async function checkSwipeTip() {
+      let isActive = true;
+
+      async function maybeShowHistorySwipeTip() {
+        // only show when there is actual history to swipe
+        if (metrics.length === 0) return;
+
         const seen = await AsyncStorage.getItem("seen_swipe_tip_history");
-        if (!seen) setShowSwipeTipHistory(true);
+        if (!seen && isActive) setShowSwipeTipHistory(true);
       }
-      checkSwipeTip();
-    }, [])
+
+      maybeShowHistorySwipeTip();
+
+      return () => {
+        isActive = false;
+      };
+    }, [metrics.length])
   );
 
   useFocusEffect(
@@ -224,7 +234,8 @@ export default function MetricsHistory() {
       <ScrollView contentContainerStyle={styles.container}>
         <Text style={styles.title}>📊 Your Progress History</Text>
 
-        {showSwipeTipHistory && (
+        {showSwipeTipHistory && metrics.length > 0 && (
+
           <View style={styles.swipeTip}>
             <Ionicons name="swap-horizontal" size={18} color="#fff" />
             <Text style={styles.swipeTipText}>

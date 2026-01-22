@@ -166,13 +166,21 @@ export default function GoalsScreen() {
     );
   };
 
+  const hasActiveGoals = goals.some((g) => (g.status ?? "active") === "active");
+  const swipeEnabled = statusFilter === "active" || statusFilter === "canceled";
+
   useEffect(() => {
-    async function checkSwipeTip() {
+    async function maybeShowTip() {
+      if (!hasActiveGoals || statusFilter !== "active") return;
+
       const seen = await AsyncStorage.getItem("seen_goals_swipe_tip");
       if (!seen) setShowSwipeTip(true);
     }
-    checkSwipeTip();
-  }, []);
+
+    maybeShowTip();
+  }, [hasActiveGoals, statusFilter]);
+
+
 
   // ----------------------
   // Fetch premium from backend (calls verify_premium)
@@ -450,8 +458,6 @@ export default function GoalsScreen() {
     return matchesStatus && matchesMetric;
   });
 
-  const swipeEnabled = statusFilter === "active" || statusFilter === "canceled";
-
   const filterLabel =
     statusFilter === "active"
       ? "active"
@@ -473,7 +479,7 @@ export default function GoalsScreen() {
 
       <Text style={styles.title}>🎯 Your Goals</Text>
 
-      {showSwipeTip && (
+      {showSwipeTip && swipeEnabled && statusFilter === "active" && hasActiveGoals && (
         <View style={styles.swipeTip}>
           <Ionicons name="swap-horizontal" size={18} color="#fff" />
           <Text style={styles.swipeTipText}>
