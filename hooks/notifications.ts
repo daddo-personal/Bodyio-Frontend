@@ -24,7 +24,7 @@ export async function registerForPushNotificationsAsync() {
     }
 
     if (finalStatus !== "granted") {
-      alert("Failed to get push token!");
+      alert("Please alow notifications for bodyIO");
       return null;
     }
 

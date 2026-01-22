@@ -309,9 +309,7 @@ export default function AuthScreen() {
 
       router.replace(needsProfile ? "/userinfo" : "/(tabs)/home");
       // 📌 Check for push_token, if not registerForPushNotification
-      console.log("DKA 1")
-      console.log("push token: ", data.push_token)
-      if (data.push_token == undefined) {
+      if (!data.push_token) {
         const token = await registerForPushNotificationsAsync();
         console.log("Saving registering push notification")
         console.log("New token is: ", token)

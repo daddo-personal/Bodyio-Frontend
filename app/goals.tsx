@@ -18,6 +18,14 @@ import {
 import DateTimePickerModal from "react-native-modal-datetime-picker";
 
 const API_URL = Constants.expoConfig.extra.apiUrl;
+type MetricKey = "weight" | "bmi" | "fat_percent" | "skeletal_muscle_percent";
+
+const METRIC_LIMITS: Record<MetricKey, { min: number; max: number; label: string }> = {
+  weight: { min: 50, max: 800, label: "Weight (lbs)" },
+  bmi: { min: 10, max: 80, label: "BMI" },
+  fat_percent: { min: 2, max: 70, label: "Body fat %" },
+  skeletal_muscle_percent: { min: 15, max: 60, label: "Muscle %" },
+};
 
 const METRICS = [
   { key: "weight", label: "Weight" },
@@ -34,12 +42,28 @@ function formatDisplayDate(ymd: string) {
 const isPercentMetric = (metricKey: string) =>
   metricKey === "fat_percent" || metricKey === "skeletal_muscle_percent";
 
+const validateTargetValue = (metricKey: MetricKey, value: number) => {
+  if (!Number.isFinite(value)) return { ok: false as const, message: "Enter a valid number." };
+
+  const { min, max, label } = METRIC_LIMITS[metricKey];
+
+  if (value < min || value > max) {
+    return {
+      ok: false as const,
+      message: `${label} must be between ${min} and ${max}.`,
+    };
+  }
+
+  return { ok: true as const };
+};
+
 const getTargetUnitLabel = (metricKey: string) => {
   if (isPercentMetric(metricKey)) return "(%)";
   if (metricKey === "weight") return "(lbs)";
   if (metricKey === "bmi") return "";
   return "";
 };
+
 
 /**
  * Parses target values safely:
@@ -205,17 +229,9 @@ export default function GoalsScreen() {
     const parsed = parseTargetValue(targetValue, editingGoal.metric);
     if (parsed == null) return Alert.alert("Invalid value", "Enter a valid number.");
 
-    // Optional sanity checks
-    if (isPercentMetric(editingGoal.metric) && (parsed < 0 || parsed > 100)) {
-      return Alert.alert("Invalid %", "Percent goals must be between 0 and 100.");
-    }
-    if (editingGoal.metric === "bmi" && (parsed < 5 || parsed > 80)) {
-      // loose bounds, just to catch typos
-      return Alert.alert("Invalid BMI", "Enter a realistic BMI value.");
-    }
-    if (editingGoal.metric === "weight" && parsed <= 0) {
-      return Alert.alert("Invalid weight", "Weight must be greater than 0.");
-    }
+    const metricKey = editingGoal.metric as MetricKey;
+    const check = validateTargetValue(metricKey, parsed);
+    if (!check.ok) return Alert.alert("Invalid value", check.message);
 
     const ymd = `${selectedDate.year}-${selectedDate.month}-${selectedDate.day}`;
 
@@ -254,20 +270,13 @@ export default function GoalsScreen() {
     if (!editingGoal?.id) return;
     if (!targetValue) return Alert.alert("Missing field", "Enter a value.");
 
-    const metricKey = editingGoal.metric;
+    const metricKey = editingGoal.metric as MetricKey;
     const parsed = parseTargetValue(targetValue, metricKey);
     if (parsed == null) return Alert.alert("Invalid value", "Enter a valid number.");
 
-    if (isPercentMetric(metricKey) && (parsed < 0 || parsed > 100)) {
-      return Alert.alert("Invalid %", "Percent goals must be between 0 and 100.");
-    }
-    if (metricKey === "bmi" && (parsed < 5 || parsed > 80)) {
-      return Alert.alert("Invalid BMI", "Enter a realistic BMI value.");
-    }
-    if (metricKey === "weight" && parsed <= 0) {
-      return Alert.alert("Invalid weight", "Weight must be greater than 0.");
-    }
 
+    const check = validateTargetValue(metricKey, parsed);
+    if (!check.ok) return Alert.alert("Invalid value", check.message);
     const ymd = `${selectedDate.year}-${selectedDate.month}-${selectedDate.day}`;
 
     const payload = {

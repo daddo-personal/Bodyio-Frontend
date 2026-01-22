@@ -45,6 +45,10 @@ import { Ionicons } from "@expo/vector-icons";
 
 const API_URL = Constants.expoConfig.extra.apiUrl;
 const MAX_FREE_SCANS = 5;
+const LIMITS = {
+  fat: { min: 2, max: 70 },
+  muscle: { min: 15, max: 60 },
+} as const;
 
 // ----------------------
 // Helpers
@@ -167,13 +171,41 @@ export default function DashboardScreen() {
   // ----------------------
   // Verify modal helpers
   // ----------------------
-  const clampPct = (v: number) => Math.max(0, Math.min(v, 80));
-  const parsePct = (s: string) => {
-    const cleaned = s.replace(/[^0-9.]/g, "");
-    const n = Number(cleaned);
-    if (Number.isNaN(n)) return null;
-    return n;
+  const sanitizeDecimalInput = (text: string) => {
+    let t = text.replace(/[^\d.]/g, "");
+    const firstDot = t.indexOf(".");
+    if (firstDot !== -1) {
+      t = t.slice(0, firstDot + 1) + t.slice(firstDot + 1).replace(/\./g, "");
+    }
+    return t;
   };
+
+  const parseDecimal = (s: string) => {
+    const cleaned = s.trim();
+    if (!cleaned) return null;
+    const n = Number(cleaned);
+    return Number.isFinite(n) ? n : null;
+  };
+
+  const round1 = (n: number) => Math.round(n * 10) / 10;
+
+  const validatePercent = (kind: "fat" | "muscle", raw: string) => {
+    const n = parseDecimal(raw);
+    if (n == null) return { ok: false as const, message: "Enter a valid number." };
+
+    const v = round1(n);
+    const { min, max } = LIMITS[kind];
+
+    if (v < min || v > max) {
+      return {
+        ok: false as const,
+        message: `${kind === "fat" ? "Fat %" : "Muscle %"} must be between ${min} and ${max}.`,
+      };
+    }
+
+    return { ok: true as const, value: v };
+  };
+
 
   const openVerifyModal = () => {
     if (!recent) return;
@@ -190,29 +222,33 @@ export default function DashboardScreen() {
       Alert.alert("Error", "No recent scan found to update.");
       return;
     }
-
-    const fat = parsePct(verifyFat);
-    const muscle = parsePct(verifyMuscle);
-
-    if (fat == null || muscle == null) {
-      Alert.alert("Invalid input", "Please enter numbers for Fat % and Muscle %.");
+    const fatCheck = validatePercent("fat", verifyFat);
+    if (!fatCheck.ok) {
+      Alert.alert("Invalid input", fatCheck.message);
       return;
     }
 
-    const fatClamped = clampPct(fat);
-    const muscleClamped = clampPct(muscle);
+    const muscleCheck = validatePercent("muscle", verifyMuscle);
+    if (!muscleCheck.ok) {
+      Alert.alert("Invalid input", muscleCheck.message);
+      return;
+    }
 
-    // optional sanity check
-    if (fatClamped + muscleClamped > 120) {
+    const fatValue = fatCheck.value;
+    const muscleValue = muscleCheck.value;
+
+    // optional sanity check (still fine)
+    if (fatValue + muscleValue > 120) {
       Alert.alert("Check values", "Those values look unusual. Please double-check.");
       return;
     }
 
+
     setSavingVerify(true);
     try {
       const form = new FormData();
-      form.append("fat_percent", String(fatClamped));
-      form.append("skeletal_muscle_percent", String(muscleClamped));
+      form.append("fat_percent", String(fatValue));
+      form.append("skeletal_muscle_percent", String(muscleValue));
       form.append("verify_method", verifyMethod);
 
       const res = await fetch(`${API_URL}/metrics_verify/${recent.id}`, {
@@ -232,8 +268,8 @@ export default function DashboardScreen() {
       // ✅ Update local recent so UI refreshes instantly
       setRecent((prev: any) => ({
         ...(prev || {}),
-        fat_percent: updated.fat_percent ?? fatClamped,
-        skeletal_muscle_percent: updated.skeletal_muscle_percent ?? muscleClamped,
+        fat_percent: updated.fat_percent ?? fatValue,
+        skeletal_muscle_percent: updated.skeletal_muscle_percent ?? muscleValue,
         verified_method: verifyMethod,
         verified_at: new Date().toISOString(),
       }));
@@ -695,28 +731,30 @@ export default function DashboardScreen() {
                     <Text style={styles.inputLabel}>Fat %</Text>
                     <TextInput
                       value={verifyFat}
-                      onChangeText={setVerifyFat}
-                      keyboardType="decimal-pad"
+                      onChangeText={(t) => setVerifyFat(sanitizeDecimalInput(t))}
+                      keyboardType={Platform.OS === "ios" ? "decimal-pad" : "numeric"}
                       placeholder="e.g. 18.5"
                       placeholderTextColor="#6b7280"
                       style={styles.input}
                       maxLength={5}
                       returnKeyType="done"
                     />
+
                   </View>
 
                   <View style={{ flex: 1 }}>
                     <Text style={styles.inputLabel}>Muscle %</Text>
                     <TextInput
                       value={verifyMuscle}
-                      onChangeText={setVerifyMuscle}
-                      keyboardType="decimal-pad"
+                      onChangeText={(t) => setVerifyMuscle(sanitizeDecimalInput(t))}
+                      keyboardType={Platform.OS === "ios" ? "decimal-pad" : "numeric"}
                       placeholder="e.g. 41.2"
                       placeholderTextColor="#6b7280"
                       style={styles.input}
                       maxLength={5}
                       returnKeyType="done"
                     />
+
                   </View>
                 </View>
 

@@ -21,7 +21,12 @@ import DateTimePickerModal from "react-native-modal-datetime-picker";
 
 import Purchases from "react-native-purchases";
 import useRevenueCat from "../../hooks/useRevenueCat";
+import { registerForPushNotificationsAsync } from "../../hooks/notifications";
+import * as Notifications from "expo-notifications";
+import { Linking } from "react-native";
 
+const PRIVACY_POLICY_URL = "https://privacy.bodyio.org/privacy";
+const TERMS_OF_USE_URL = "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/";
 const API_URL = Constants.expoConfig.extra.apiUrl;
 
 export default function SettingsScreen() {
@@ -35,11 +40,14 @@ export default function SettingsScreen() {
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
+  const [pushToken, setPushToken] = useState("");
   const [password, setPassword] = useState("");
   const [heightFeet, setHeightFeet] = useState("");
   const [heightInches, setHeightInches] = useState("");
   const [weight, setWeight] = useState("");
   const [customerInfo, setCustomerInfo] = useState<any>(null);
+  const [deleting, setDeleting] = useState(false);
+
 
   const [selectedYear, setSelectedYear] = useState(
     new Date().getFullYear().toString()
@@ -48,6 +56,53 @@ export default function SettingsScreen() {
 
   // RevenueCat offerings hook
   const { offerings, loading: rcLoading } = useRevenueCat();
+
+  async function savePushTokenToBackend(userId: number, pushToken: string) {
+    try {
+      await fetch(`${API_URL}/users/${userId}/push-token`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ push_token: pushToken }),
+      });
+      console.log("Saved push token for user", userId);
+    } catch (e) {
+      console.log("Failed to save push token:", e);
+    }
+  }
+
+  async function openLink(url: string) {
+    const supported = await Linking.canOpenURL(url);
+    if (!supported) {
+      Alert.alert("Link error", "Could not open link.");
+      return;
+    }
+    await Linking.openURL(url);
+  }
+
+
+  async function handleDeleteAccount() {
+    if (!user?.id) return;
+
+    // First confirm
+    Alert.alert(
+      "Delete Account",
+      "This will permanently delete your account and data. This cannot be undone.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Continue",
+          style: "destructive",
+          onPress: () => {
+            // Second confirm with typed text
+            router.push({
+              pathname: "/deleteaccount",
+              params: { userId: String(user.id) },
+            });
+          },
+        },
+      ]
+    );
+  }
 
   // -------------------------------------------
   // Load user + customerInfo on screen focus
@@ -96,6 +151,7 @@ export default function SettingsScreen() {
 
           // 🔹 2) Fetch fresh user from backend
           const res = await fetch(`${API_URL}/users/${parsed.id}`);
+          const { status: existingStatus } = await Notifications.getPermissionsAsync();
 
           if (res.ok) {
             const data = await res.json();
@@ -103,6 +159,14 @@ export default function SettingsScreen() {
             setFirstName(data.first_name || "");
             setLastName(data.last_name || "");
             setEmail(data.email || "");
+            setPushToken(data.push_token || "");
+
+            if (!pushToken) {
+              if (existingStatus === "granted") {
+                const token = await registerForPushNotificationsAsync();
+                if (token) await savePushTokenToBackend(data.id, token);
+              }
+            }
 
             const h = Number(data.height);
             if (!Number.isNaN(h) && h > 0) {
@@ -221,7 +285,39 @@ export default function SettingsScreen() {
     ensureRevenueCatUser();
   }, [user?.id]);
 
-  // ⚠️ Removed old syncPremiumFromBackend useEffect here
+  async function handleRestorePurchases() {
+    try {
+      setLoading(true); // or create a separate restoring state if you prefer
+
+      // 1) Restore via RevenueCat / StoreKit
+      const info = await Purchases.restorePurchases();
+      setCustomerInfo(info);
+
+      // 2) Optional: re-verify / refresh backend premium status
+      if (user?.id) {
+        try {
+          const verifyUrl = `${API_URL}/users/${user.id}/${Platform.OS}/verify_premium`;
+          await fetch(verifyUrl);
+
+          const res = await fetch(`${API_URL}/users/${user.id}`);
+          if (res.ok) {
+            const updated = await res.json();
+            setUser(updated);
+            await AsyncStorage.setItem("user", JSON.stringify(updated));
+          }
+        } catch (e) {
+          console.log("Backend refresh after restore failed:", e);
+        }
+      }
+
+      Alert.alert("Restored", "Your subscription has been restored.");
+    } catch (e: any) {
+      console.log("restorePurchases error:", e);
+      Alert.alert("Restore Failed", e?.message || "Could not restore purchases.");
+    } finally {
+      setLoading(false);
+    }
+  }
 
   // -------------------------------------------
   // Real-time subscription refresh listener
@@ -428,6 +524,7 @@ export default function SettingsScreen() {
                 <Text style={styles.bullet}>
                   • Goals & Insights for all metrics
                 </Text>
+
               </View>
 
               {offerings?.availablePackages?.map((pkg) => {
@@ -537,6 +634,65 @@ export default function SettingsScreen() {
               })}
             </View>
           )}
+
+          {Platform.OS === "ios" && (
+            <View style={{ marginBottom: 20 }}>
+              <TouchableOpacity
+                onPress={handleRestorePurchases}
+                style={{
+                  backgroundColor: "#1f1f1f",
+                  borderColor: "#3f3f3f",
+                  borderWidth: 1.5,
+                  padding: 18,
+                  borderRadius: 14,
+                }}
+              >
+                <View
+                  style={{
+                    marginTop: 4,
+                    backgroundColor: "#fff",
+                    paddingVertical: 12,
+                    borderRadius: 8,
+                    alignItems: "center",
+                  }}
+                >
+                  <Text style={{ color: "#000", fontSize: 16, fontWeight: "600" }}>
+                    Restore Purchases
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            </View>
+          )}
+
+
+          <View
+            style={{
+              marginTop: 8,
+              paddingTop: 10,
+              borderTopWidth: 1,
+              borderTopColor: "#3f3f3f",
+            }}
+          >
+            <Text style={{ color: "#9ca3af", fontSize: 12, lineHeight: 16 }}>
+              Subscription automatically renews unless canceled at least 24 hours before the
+              end of the current period. Manage or cancel anytime in your account settings.
+            </Text>
+
+            <View style={{ flexDirection: "row", justifyContent: "space-between", marginTop: 10 }}>
+              <TouchableOpacity onPress={() => openLink(TERMS_OF_USE_URL)} style={{ paddingVertical: 8 }}>
+                <Text style={{ color: "#fff", fontSize: 13, textDecorationLine: "underline" }}>
+                  Terms of Use (EULA)
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity onPress={() => openLink(PRIVACY_POLICY_URL)} style={{ paddingVertical: 8 }}>
+                <Text style={{ color: "#fff", fontSize: 13, textDecorationLine: "underline" }}>
+                  Privacy Policy
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
         </View>
 
         {/* PROFILE INFO */}
@@ -684,7 +840,7 @@ export default function SettingsScreen() {
                 style: "destructive",
                 onPress: async () => {
                   await AsyncStorage.removeItem("user");
-                  await Purchases.logOut().catch(() => {});
+                  await Purchases.logOut().catch(() => { });
                   router.replace("/auth");
                 },
               },
@@ -694,6 +850,18 @@ export default function SettingsScreen() {
         >
           <Text style={[styles.buttonText, { color: "#000" }]}>Log Out</Text>
         </TouchableOpacity>
+
+        {/* DELETE ACCOUNT */}
+        <TouchableOpacity
+          onPress={handleDeleteAccount}
+          style={[
+            styles.button,
+            { backgroundColor: "#ef4444", width: 200 }, // match width style
+          ]}
+        >
+          <Text style={[styles.buttonText, { color: "#fff" }]}>Delete Account</Text>
+        </TouchableOpacity>
+
       </ScrollView>
     </SafeAreaView>
   );

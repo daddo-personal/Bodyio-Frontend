@@ -10,6 +10,7 @@ import {
     ActivityIndicator,
     StyleSheet,
     Animated,
+    Platform,
     Easing,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -22,6 +23,10 @@ import DateTimePickerModal from "react-native-modal-datetime-picker";
 import { useFocusEffect } from "@react-navigation/native";
 
 const API_URL = Constants.expoConfig.extra.apiUrl;
+const WEIGHT_LIMITS = {
+    lbs: { min: 50, max: 800 },
+    kg: { min: 20, max: 363 }, // ~50–800 lbs
+} as const;
 
 export default function EditMetricScreen() {
     const router = useRouter();
@@ -54,6 +59,33 @@ export default function EditMetricScreen() {
 
     const [uploading, setUploading] = useState({});
     const [loading, setLoading] = useState(false);
+
+    const sanitizeWeightInput = (text: string) => {
+        let t = text.replace(/[^\d.]/g, "");
+        const firstDot = t.indexOf(".");
+        if (firstDot !== -1) {
+            t = t.slice(0, firstDot + 1) + t.slice(firstDot + 1).replace(/\./g, "");
+        }
+        return t;
+    };
+
+    const validateWeight = (raw: string, unit: "lbs" | "kg") => {
+        const cleaned = raw.trim();
+        if (!cleaned) return { ok: false as const, message: "Enter a weight." };
+
+        const n = Number(cleaned);
+        if (!Number.isFinite(n)) return { ok: false as const, message: "Enter a valid number." };
+
+        const { min, max } = WEIGHT_LIMITS[unit];
+        if (n < min || n > max) {
+            return {
+                ok: false as const,
+                message: `Weight must be between ${min} and ${max} ${unit}.`,
+            };
+        }
+
+        return { ok: true as const, value: n };
+    };
 
     // ----------------------------------------------------
     // LOAD USER + WEIGHT UNIT PREFERENCE
@@ -244,8 +276,9 @@ export default function EditMetricScreen() {
     // SAVE EDITED METRIC
     // ----------------------------------------------------
     const handleSave = async () => {
-        if (!weight) {
-            Alert.alert("Missing Fields", "Enter a weight.");
+        const w = validateWeight(weight, unit);
+        if (!w.ok) {
+            Alert.alert("Invalid weight", w.message);
             return;
         }
 
@@ -254,10 +287,10 @@ export default function EditMetricScreen() {
         try {
             const formData = new FormData();
 
-            let finalWeight = weight;
-            if (unit === "kg") {
-                finalWeight = (parseFloat(weight) * 2.20462).toFixed(1);
-            }
+            let finalWeight = unit === "kg"
+                ? (w.value * 2.20462).toFixed(1) // send lbs to backend
+                : w.value.toFixed(1);
+
 
             formData.append("weight", finalWeight);
             formData.append("taken_at", takenAt.toISOString());
@@ -414,9 +447,12 @@ export default function EditMetricScreen() {
                     <TextInput
                         style={[styles.input, { textAlign: "center" }]}
                         value={weight}
-                        onChangeText={setWeight}
-                        keyboardType="numeric"
+                        onChangeText={(t) => setWeight(sanitizeWeightInput(t))}
+                        keyboardType={Platform.OS === "ios" ? "decimal-pad" : "numeric"}
+                        placeholder={unit === "lbs" ? "50–800" : "20–363"}
+                        placeholderTextColor="#777"
                     />
+
 
                     <>
                         {renderPhotoInput("Front", front, setFront)}

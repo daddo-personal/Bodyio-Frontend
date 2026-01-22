@@ -9,6 +9,7 @@ import {
   Image,
   ActivityIndicator,
   StyleSheet,
+  Platform,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import * as ImagePicker from "expo-image-picker";
@@ -20,6 +21,10 @@ import { Animated, Easing } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 
 const API_URL = Constants.expoConfig.extra.apiUrl;
+const WEIGHT_LIMITS = {
+  lbs: { min: 50, max: 800 },
+  kg: { min: 20, max: 363 }, // ~50–800 lbs
+} as const;
 
 export default function UploadScreen() {
   const router = useRouter();
@@ -45,6 +50,46 @@ export default function UploadScreen() {
   });
   const [uploading, setUploading] = useState<{ [key: string]: boolean }>({});
   const [loading, setLoading] = useState(false);
+
+  const sanitizeWeightInput = (text: string) => {
+    // allow digits + one decimal point
+    let t = text.replace(/[^\d.]/g, "");
+    const firstDot = t.indexOf(".");
+    if (firstDot !== -1) {
+      t = t.slice(0, firstDot + 1) + t.slice(firstDot + 1).replace(/\./g, "");
+    }
+    return t;
+  };
+
+  const lbsFrom = (value: number, unit: "lbs" | "kg") =>
+    unit === "kg" ? value * 2.20462 : value;
+
+  const validateWeight = (raw: string, unit: "lbs" | "kg") => {
+    const cleaned = raw.trim();
+    if (!cleaned) return { ok: false as const, message: "Please enter a valid weight." };
+
+    const n = Number(cleaned);
+    if (!Number.isFinite(n)) return { ok: false as const, message: "Please enter a valid weight." };
+
+    const { min, max } = WEIGHT_LIMITS[unit];
+    if (n < min || n > max) {
+      return {
+        ok: false as const,
+        message: `Weight must be between ${min} and ${max} ${unit}.`,
+      };
+    }
+
+    // also ensure the converted lbs value isn't weird (extra safety)
+    const lbs = lbsFrom(n, unit);
+    if (lbs < WEIGHT_LIMITS.lbs.min || lbs > WEIGHT_LIMITS.lbs.max) {
+      return {
+        ok: false as const,
+        message: `Weight must be between ${WEIGHT_LIMITS.lbs.min} and ${WEIGHT_LIMITS.lbs.max} lbs.`,
+      };
+    }
+
+    return { ok: true as const, value: n };
+  };
 
   useFocusEffect(
     React.useCallback(() => {
@@ -214,28 +259,30 @@ export default function UploadScreen() {
     });
   };
 
-  useEffect(() => {
-    const loadUser = async () => {
-      const saved = await AsyncStorage.getItem("user");
-      if (!saved) return;
-      const parsed = JSON.parse(saved);
-      setUser(parsed);
-      console.log(parsed)
-      setUserId(parsed.id?.toString?.() ?? "");
+  useFocusEffect(
+    React.useCallback(() => {
+      const loadUser = async () => {
+        const saved = await AsyncStorage.getItem("user");
+        if (!saved) return;
+        const parsed = JSON.parse(saved);
+        setUser(parsed);
+        console.log(parsed)
+        setUserId(parsed.id?.toString?.() ?? "");
 
-      if (!('height' in parsed)) {
-        const res = await fetch(`${API_URL}/users/${parsed.id}`);
-        if (res.ok) {
-          const data = await res.json();
-          setHeight(data.height);
+        if (parsed.height == null) {
+          const res = await fetch(`${API_URL}/users/${parsed.id}`);
+          if (res.ok) {
+            const data = await res.json();
+            setHeight(data.height);
+          }
         }
-      }
-      else {
-        setHeight(parsed.height);
-      }
-    };
-    loadUser();
-  }, []);
+        else {
+          setHeight(parsed.height);
+        }
+      };
+      loadUser();
+    }, [])
+  );
 
   const handleConfirm = (selectedDate: Date) => {
     setDate(selectedDate);
@@ -354,8 +401,9 @@ export default function UploadScreen() {
       return;
     }
 
-    if (!weight) {
-      Alert.alert("Missing Fields", "Please enter a valid weight.");
+    const w = validateWeight(weight, unit);
+    if (!w.ok) {
+      Alert.alert("Invalid weight", w.message);
       return;
     }
 
@@ -370,15 +418,25 @@ export default function UploadScreen() {
       return;
     }
 
+    console.log("Height: ", height)
+    if (!height) {
+      Alert.alert("Please update your height information in settings");
+      return;
+    }
+
     setLoading(true);
 
     try {
       const formData = new FormData();
-      let finalWeight = weight;
+      // use validated numeric weight
+      let finalWeight = String(w.value);
 
       if (unit === "kg") {
-        finalWeight = (parseFloat(weight) * 2.20462).toFixed(1); // convert to lbs
+        finalWeight = (w.value * 2.20462).toFixed(1); // convert to lbs
+      } else {
+        finalWeight = w.value.toFixed(1); // keep consistent formatting
       }
+
 
       formData.append("user_id", userId);
       formData.append("height", height);
@@ -496,7 +554,7 @@ export default function UploadScreen() {
   ) => {
     const key = label.toLowerCase() as "front" | "side" | "back";
     const isUploading = !!uploading[key];
-  
+
     return (
       <View style={{ marginBottom: 20, alignItems: "center" }}>
         <Text style={styles.label}>{label} Photo</Text>
@@ -597,8 +655,10 @@ export default function UploadScreen() {
           <TextInput
             style={[styles.input, { textAlign: "center" }]}
             value={weight}
-            onChangeText={setWeight}
-            keyboardType="numeric"
+            onChangeText={(t) => setWeight(sanitizeWeightInput(t))}
+            keyboardType={Platform.OS === "ios" ? "decimal-pad" : "numeric"}
+            placeholder={unit === "lbs" ? "50–800" : "20–363"}
+            placeholderTextColor="#777"
           />
 
           {renderPhotoInput("Front", front, setFront)}
@@ -694,21 +754,21 @@ const styles = StyleSheet.create({
   },
   saveButtonText: { color: "#000", fontWeight: "600", fontSize: 16 },
   photoSpinnerOverlay: {
-  position: "absolute",
-  top: 0,
-  left: 0,
-  right: 0,
-  bottom: 0,
-  borderRadius: 8,
-  backgroundColor: "rgba(0,0,0,0.55)",
-  alignItems: "center",
-  justifyContent: "center",
-},
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderRadius: 8,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
 
-photoSpinnerText: {
-  marginTop: 10,
-  color: "#fff",
-  fontWeight: "700",
-},
+  photoSpinnerText: {
+    marginTop: 10,
+    color: "#fff",
+    fontWeight: "700",
+  },
 
 });
