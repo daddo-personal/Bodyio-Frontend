@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   StyleSheet,
   Animated,
+  Linking,
 } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -79,7 +80,7 @@ export default function CameraScreen() {
       sound.setOnPlaybackStatusUpdate((status) => {
         if (status.didJustFinish) sound.unloadAsync();
       });
-    } catch {}
+    } catch { }
   };
 
   // ----- COUNTDOWN -----
@@ -146,16 +147,47 @@ export default function CameraScreen() {
       </View>
     );
 
-  if (!permission.granted)
+  if (!permission.granted) {
+    const canAskAgain = permission?.canAskAgain ?? true;
+
     return (
       <View style={styles.centered}>
-        <Text style={{ color: "#fff" }}>Camera permission required</Text>
-        <TouchableOpacity onPress={requestPermission}>
-          <Text style={{ color: "#4ade80", marginTop: 10 }}>Grant Permission</Text>
-        </TouchableOpacity>
+        <View style={{ alignItems: "center", paddingHorizontal: 24 }}>
+          <Ionicons name="camera" size={44} color="#fff" style={{ marginBottom: 12 }} />
+
+          <Text style={styles.permissionTitle}>Camera access</Text>
+
+          <Text style={styles.permissionBody}>
+            Camera access is needed to take progress photos.
+          </Text>
+
+          {canAskAgain ? (
+            <TouchableOpacity
+              onPress={requestPermission}
+              activeOpacity={0.8}
+              style={styles.permissionButton}
+            >
+              <Text style={styles.permissionButtonText}>Continue</Text>
+            </TouchableOpacity>
+          ) : (
+            <>
+              <Text style={styles.permissionMuted}>
+                You previously denied camera access. Enable it in Settings to use this feature.
+              </Text>
+
+              <TouchableOpacity
+                onPress={() => Linking.openSettings()}
+                activeOpacity={0.8}
+                style={styles.permissionButton}
+              >
+                <Text style={styles.permissionButtonText}>Open Settings</Text>
+              </TouchableOpacity>
+            </>
+          )}
+        </View>
       </View>
     );
-
+  }
   const timerDisabled = isTaking || countdown !== null;
 
   return (
