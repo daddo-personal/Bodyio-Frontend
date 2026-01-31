@@ -1,5 +1,5 @@
 // app/camera.tsx
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -67,6 +67,12 @@ export default function CameraScreen() {
     2: require("../assets/audio/2.mp3"),
     1: require("../assets/audio/1.mp3"),
   };
+
+  useEffect(() => {
+    if (permission && !permission.granted && permission.canAskAgain) {
+      requestPermission();
+    }
+  }, [permission]);
 
   const playCountdownSound = async (num: number) => {
     try {
