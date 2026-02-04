@@ -49,12 +49,12 @@ export default function EditMetricScreen() {
 
     const [front, setFront] = useState<string | null>(metric?.photo_front || null);
     const [side, setSide] = useState<string | null>(metric?.photo_side || null);
-    const [back, setBack] = useState<string | null>(metric?.photo_back || null);
+    // const [back, setBack] = useState<string | null>(metric?.photo_back || null);
 
     const [validated, setValidated] = useState({
         front: !!metric?.photo_front,
         side: !!metric?.photo_side,
-        back: !!metric?.photo_back,
+        // back: !!metric?.photo_back,
     });
 
     const [uploading, setUploading] = useState({});
@@ -135,7 +135,7 @@ export default function EditMetricScreen() {
                     if (valid) {
                         if (returnedLabel === "front") setFront(returnedPhoto);
                         if (returnedLabel === "side") setSide(returnedPhoto);
-                        if (returnedLabel === "back") setBack(returnedPhoto);
+                        // if (returnedLabel === "back") setBack(returnedPhoto);
                     }
 
                     await AsyncStorage.removeItem("camera_return_photo");
@@ -297,7 +297,7 @@ export default function EditMetricScreen() {
 
             if (front) formData.append("photo_front", { uri: front, name: "front.jpg", type: "image/jpeg" });
             if (side) formData.append("photo_side", { uri: side, name: "side.jpg", type: "image/jpeg" });
-            if (back) formData.append("photo_back", { uri: back, name: "back.jpg", type: "image/jpeg" });
+            // if (back) formData.append("photo_back", { uri: back, name: "back.jpg", type: "image/jpeg" });
 
             const res = await fetch(`${API_URL}/metrics/${metric.id}`, {
                 method: "PUT",
@@ -331,10 +331,10 @@ export default function EditMetricScreen() {
         );
     };
 
-    const clearPhoto = (label: "front" | "side" | "back") => {
+    const clearPhoto = (label: "front" | "side") => {
         if (label === "front") setFront(null);
         if (label === "side") setSide(null);
-        if (label === "back") setBack(null);
+        // if (label === "back") setBack(null);
 
         setValidated((prev) => ({
             ...prev,
@@ -350,7 +350,7 @@ export default function EditMetricScreen() {
         uri: string | null,
         setter: (v: string) => void
     ) => {
-        const key = label.toLowerCase() as "front" | "side" | "back";
+        const key = label.toLowerCase() as "front" | "side";
         const isUploading = !!uploading[key]; // ✅ ADD
 
         return (
@@ -457,7 +457,7 @@ export default function EditMetricScreen() {
                     <>
                         {renderPhotoInput("Front", front, setFront)}
                         {renderPhotoInput("Side", side, setSide)}
-                        {renderPhotoInput("Back", back, setBack)}
+                        {/* {renderPhotoInput("Back", back, setBack)} */}
                     </>
 
                 </View>

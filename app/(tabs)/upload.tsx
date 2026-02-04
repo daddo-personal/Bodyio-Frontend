@@ -41,12 +41,11 @@ export default function UploadScreen() {
 
   const [front, setFront] = useState<string | null>(null);
   const [side, setSide] = useState<string | null>(null);
-  const [back, setBack] = useState<string | null>(null);
+  // const [back, setBack] = useState<string | null>(null);
 
   const [validated, setValidated] = useState<{ [key: string]: boolean }>({
     front: false,
     side: false,
-    back: false,
   });
   const [uploading, setUploading] = useState<{ [key: string]: boolean }>({});
   const [loading, setLoading] = useState(false);
@@ -132,7 +131,7 @@ export default function UploadScreen() {
           if (valid) {
             if (returnedLabel === "front") setFront(returnedPhoto);
             if (returnedLabel === "side") setSide(returnedPhoto);
-            if (returnedLabel === "back") setBack(returnedPhoto);
+            // if (returnedLabel === "back") setBack(returnedPhoto);
           }
 
           await AsyncStorage.removeItem("camera_return_photo");
@@ -408,7 +407,7 @@ export default function UploadScreen() {
     }
 
     // Validate only photos that the user actually provided
-    const photosToValidate = { front, side, back };
+    const photosToValidate = { front, side };
     const invalidUploaded = Object.keys(photosToValidate).some(
       (key) => (photosToValidate as any)[key] && !validated[key]
     );
@@ -460,13 +459,13 @@ export default function UploadScreen() {
         } as any);
       }
 
-      if (back) {
-        formData.append("photo_back", {
-          uri: back,
-          name: "back.jpg",
-          type: "image/jpeg",
-        } as any);
-      }
+      // if (back) {
+      //   formData.append("photo_back", {
+      //     uri: back,
+      //     name: "back.jpg",
+      //     type: "image/jpeg",
+      //   } as any);
+      // }
 
       const res = await fetch(`${API_URL}/metrics`, {
         method: "POST",
@@ -495,7 +494,7 @@ export default function UploadScreen() {
           finalWeight,
           hasFront: !!front,
           hasSide: !!side,
-          hasBack: !!back,
+          // hasBack: !!back,
         });
 
         Alert.alert("Upload failed", msg);
@@ -511,8 +510,8 @@ export default function UploadScreen() {
       setDate(new Date());
       setFront(null);
       setSide(null);
-      setBack(null);
-      setValidated({ front: false, side: false, back: false });
+      // setBack(null);
+      setValidated({ front: false, side: false });
       setUploading({});
 
       setTimeout(() => {
@@ -536,10 +535,10 @@ export default function UploadScreen() {
     }
   };
 
-  const clearPhoto = (label: "front" | "side" | "back") => {
+  const clearPhoto = (label: "front" | "side") => {
     if (label === "front") setFront(null);
     if (label === "side") setSide(null);
-    if (label === "back") setBack(null);
+    // if (label === "back") setBack(null);
 
     setValidated((prev) => ({
       ...prev,
@@ -552,7 +551,7 @@ export default function UploadScreen() {
     uri: string | null,
     setter: (v: string | null) => void
   ) => {
-    const key = label.toLowerCase() as "front" | "side" | "back";
+    const key = label.toLowerCase() as "front" | "side";
     const isUploading = !!uploading[key];
 
     return (
@@ -663,7 +662,7 @@ export default function UploadScreen() {
 
           {renderPhotoInput("Front", front, setFront)}
           {renderPhotoInput("Side", side, setSide)}
-          {renderPhotoInput("Back", back, setBack)}
+          {/* {renderPhotoInput("Back", back, setBack)} */}
         </View>
 
         <TouchableOpacity style={[styles.saveButton]} onPress={handleSave} disabled={loading}>
