@@ -46,8 +46,6 @@ export default function SettingsScreen() {
   const [heightInches, setHeightInches] = useState("");
   const [weight, setWeight] = useState("");
   const [customerInfo, setCustomerInfo] = useState<any>(null);
-  const [deleting, setDeleting] = useState(false);
-
 
   const [selectedYear, setSelectedYear] = useState(
     new Date().getFullYear().toString()
@@ -79,6 +77,45 @@ export default function SettingsScreen() {
     await Linking.openURL(url);
   }
 
+
+  async function refreshUserFromBackend(userId: number) {
+    try {
+      setLoading(true);
+
+      // 1) Ask backend to verify premium (this is what flips is_premium server-side)
+      const verifyUrl = `${API_URL}/users/${userId}/${Platform.OS}/verify_premium`;
+      await fetch(verifyUrl).catch(() => null);
+
+      // 2) Pull fresh user
+      const res = await fetch(`${API_URL}/users/${userId}`);
+      if (!res.ok) return;
+
+      const updated = await res.json();
+
+      // 3) Update UI state + AsyncStorage
+      setUser(updated);
+      setFirstName(updated.first_name || "");
+      setLastName(updated.last_name || "");
+      setEmail(updated.email || "");
+      setPushToken(updated.push_token || "");
+
+      const h = Number(updated.height);
+      if (!Number.isNaN(h) && h > 0) {
+        const ft = Math.floor(h / 12);
+        const inch = h % 12;
+        setHeightFeet(String(ft));
+        setHeightInches(String(inch));
+      } else {
+        setHeightFeet("");
+        setHeightInches("");
+      }
+
+      setWeight(updated.weight?.toString() || "");
+      await AsyncStorage.setItem("user", JSON.stringify(updated));
+    } finally {
+      setLoading(false);
+    }
+  }
 
   async function handleDeleteAccount() {
     if (!user?.id) return;
@@ -351,9 +388,21 @@ export default function SettingsScreen() {
   // -------------------------------------------
   async function purchasePackage(pkg) {
     try {
-      const result = await Purchases.purchasePackage(pkg);
-      console.log("🎉 Purchase success:", result);
-      Alert.alert("Success!", "Your Premium subscription is now active.");
+      await Purchases.purchasePackage(pkg);
+
+      Alert.alert("Success!", "Your Premium subscription is now active.", [
+        {
+          text: "OK",
+          onPress: async () => {
+            // optional: optimistic UI immediately
+            setUser((prev: any) => (prev ? { ...prev, is_premium: true } : prev));
+
+            // then confirm with backend + refresh all UI
+            const id = user?.id;
+            if (id) await refreshUserFromBackend(id);
+          },
+        },
+      ]);
     } catch (err: any) {
       if (err.userCancelled) return;
       console.log("❌ Purchase error:", err);
@@ -432,7 +481,6 @@ export default function SettingsScreen() {
     <SafeAreaView style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.scrollContainer}>
         <Text style={styles.title}>⚙️ Settings</Text>
-
         {/* SUBSCRIPTION CARD */}
         <View style={styles.card}>
           <Text style={styles.sectionTitle}>💳 Your Plan</Text>
