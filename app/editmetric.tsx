@@ -287,17 +287,29 @@ export default function EditMetricScreen() {
         try {
             const formData = new FormData();
 
-            let finalWeight = unit === "kg"
-                ? (w.value * 2.20462).toFixed(1) // send lbs to backend
-                : w.value.toFixed(1);
-
+            const finalWeight =
+                unit === "kg"
+                    ? (w.value * 2.20462).toFixed(1) // send lbs to backend
+                    : w.value.toFixed(1);
 
             formData.append("weight", finalWeight);
             formData.append("taken_at", takenAt.toISOString());
 
-            if (front) formData.append("photo_front", { uri: front, name: "front.jpg", type: "image/jpeg" });
-            if (side) formData.append("photo_side", { uri: side, name: "side.jpg", type: "image/jpeg" });
-            // if (back) formData.append("photo_back", { uri: back, name: "back.jpg", type: "image/jpeg" });
+            if (front) {
+                formData.append("photo_front", {
+                    uri: front,
+                    name: "front.jpg",
+                    type: "image/jpeg",
+                } as any);
+            }
+
+            if (side) {
+                formData.append("photo_side", {
+                    uri: side,
+                    name: "side.jpg",
+                    type: "image/jpeg",
+                } as any);
+            }
 
             const res = await fetch(`${API_URL}/metrics/${metric.id}`, {
                 method: "PUT",
@@ -306,8 +318,15 @@ export default function EditMetricScreen() {
 
             if (!res.ok) throw new Error();
 
+            // tell history screen which card to glow
+            await AsyncStorage.setItem("highlight_metric_id", String(metric.id));
+            await AsyncStorage.setItem("history_banner", "Metric updated");
+
             showToast("✅ Metric updated!");
-            setTimeout(() => router.replace("/(tabs)/history"), 800);
+
+            setTimeout(() => {
+                router.replace("/(tabs)/history");
+            }, 800);
         } catch {
             Alert.alert("Error", "Failed to update metric.");
         } finally {

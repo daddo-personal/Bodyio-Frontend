@@ -7,6 +7,7 @@ import React, { useEffect, useState } from "react";
 import { registerForPushNotificationsAsync } from "../hooks/notifications";
 import { GoogleSignin } from "@react-native-google-signin/google-signin";
 import * as AppleAuthentication from "expo-apple-authentication";
+import * as Notifications from "expo-notifications";
 
 import {
   Alert,
@@ -114,6 +115,13 @@ export default function AuthScreen() {
         console.log("RevenueCat logIn error (apple):", e);
       }
 
+      // Ask permission
+      const { status: existingStatus } = await Notifications.getPermissionsAsync();
+
+      if (existingStatus !== "granted") {
+        const { status } = await Notifications.requestPermissionsAsync();
+      }
+
       // Push token
       if (!data.push_token) {
         const token = await registerForPushNotificationsAsync();
@@ -188,6 +196,13 @@ export default function AuthScreen() {
         // 1. Save user
         console.log("auth: ", JSON.stringify(data))
         await AsyncStorage.setItem("user", JSON.stringify(data));
+
+        // Ask permission
+        const { status: existingStatus } = await Notifications.getPermissionsAsync();
+
+        if (existingStatus !== "granted") {
+          const { status } = await Notifications.requestPermissionsAsync();
+        }
 
         // 📌 Check for push_token, if not registerForPushNotification
         if (!data.push_token) {
@@ -264,6 +279,14 @@ export default function AuthScreen() {
         data.age == null || data.height == null || data.weight == null || !data.sex;
 
       router.replace(needsProfile ? "/userinfo" : "/(tabs)/home");
+
+      // Ask permission
+      const { status: existingStatus } = await Notifications.getPermissionsAsync();
+
+      if (existingStatus !== "granted") {
+        const { status } = await Notifications.requestPermissionsAsync();
+      }
+
       // 📌 Check for push_token, if not registerForPushNotification
       if (!data.push_token) {
         const token = await registerForPushNotificationsAsync();
@@ -308,6 +331,14 @@ export default function AuthScreen() {
         data.age == null || data.height == null || data.weight == null || !data.sex;
 
       router.replace(needsProfile ? "/userinfo" : "/(tabs)/home");
+
+      // Ask permission
+      const { status: existingStatus } = await Notifications.getPermissionsAsync();
+
+      if (existingStatus !== "granted") {
+        const { status } = await Notifications.requestPermissionsAsync();
+      }
+
       // 📌 Check for push_token, if not registerForPushNotification
       if (!data.push_token) {
         const token = await registerForPushNotificationsAsync();

@@ -54,14 +54,6 @@ const LIMITS = {
 // Helpers
 // ----------------------
 const safe = (v: any) => (typeof v === "number" ? v.toFixed(2) : "—");
-const LOCK_BLUR_OFFSETS = [
-  { x: -8, y: -4 },
-  { x: 4, y: -6 },
-  { x: -6, y: 6 },
-  { x: 6, y: 4 },
-  { x: 2, y: -2 },
-  { x: -2, y: 2 },
-];
 
 const METRICS = [
   { key: "weight", label: "Weight", type: "absolute", premium: false, unitType: "weight" },
@@ -657,46 +649,14 @@ export default function DashboardScreen() {
                   return (
                     <TouchableOpacity
                       key={m.key}
-                      activeOpacity={isLocked ? 1 : 0.7}
-                      onPress={() => {
-                        if (isLocked) router.push("/settings");
-                      }}
+                      activeOpacity={0.85}
                       style={styles.metricTile}
                     >
                       <Text style={styles.metricTileLabel}>{m.label}</Text>
 
-                      {isLocked ? (
-                        <View
-                          style={{
-                            position: "relative",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            height: 28,
-                            marginTop: 4,
-                          }}
-                        >
-                          {LOCK_BLUR_OFFSETS.map((o, i) => (
-                            <View
-                              key={i}
-                              style={{
-                                position: "absolute",
-                                width: 28,
-                                height: 28,
-                                borderRadius: 14,
-                                backgroundColor: "rgba(0,0,0,0.5)",
-                                transform: [{ translateX: o.x }, { translateY: o.y }],
-                              }}
-                            />
-                          ))}
-                          <Text style={[styles.metricTileValue, { opacity: 0 }]}>
-                            {m.type === "percent" ? `${value.toFixed(1)}%` : value.toFixed(1)}
-                          </Text>
-                        </View>
-                      ) : (
-                        <Text style={styles.metricTileValue}>
-                          {formatValueWithUnit(m.key, value, weightUnit)}
-                        </Text>
-                      )}
+                      <Text style={styles.metricTileValue}>
+                        {formatValueWithUnit(m.key, value, weightUnit)}
+                      </Text>
                     </TouchableOpacity>
                   );
                 })}
