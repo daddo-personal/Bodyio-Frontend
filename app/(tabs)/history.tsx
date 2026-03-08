@@ -98,18 +98,6 @@ export default function MetricsHistory() {
     }, 1800);
   };
 
-  const maybeShowUpdatedBanner = async () => {
-    try {
-      const msg = await AsyncStorage.getItem("history_banner");
-      if (msg) {
-        showBanner(msg);
-        await AsyncStorage.removeItem("history_banner");
-      }
-    } catch (err) {
-      console.error("❌ Banner check error:", err);
-    }
-  };
-
   const maybeHighlightEditedMetric = async (loadedMetrics: any[]) => {
     try {
       const storedId = await AsyncStorage.getItem("highlight_metric_id");
@@ -124,7 +112,7 @@ export default function MetricsHistory() {
         flatListRef.current?.scrollToIndex({
           index,
           animated: true,
-          viewPosition: 0.35, // puts item a bit below top, feels nicer
+          viewPosition: 0.35,
         });
 
         setTimeout(() => {
@@ -161,7 +149,6 @@ export default function MetricsHistory() {
 
         setMetrics(sorted);
         await maybeHighlightEditedMetric(sorted);
-        await maybeShowUpdatedBanner();
       } else {
         console.error("❌ Failed to fetch metrics:", data.detail);
       }
@@ -171,7 +158,6 @@ export default function MetricsHistory() {
       setLoading(false);
     }
   };
-
 
   useFocusEffect(
     useCallback(() => {
