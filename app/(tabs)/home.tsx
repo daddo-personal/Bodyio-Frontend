@@ -50,7 +50,7 @@ export default function HomeScreen() {
         marginBottom: 32,
         lineHeight: 22,
       }}>
-        Track your fat %, muscle %, BMI, and more — all from just 3 photos.  
+        Track your fat %, muscle %, BMI, and more — all from just 2 photos.  
         Set goals and monitor your progress over time!
       </Text>
 
