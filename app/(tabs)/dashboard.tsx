@@ -601,6 +601,37 @@ export default function DashboardScreen() {
     );
   }
 
+  // ----------------------
+  // 📊 Stats Calculations
+  // ----------------------
+  const numericValues = groupedData.map((p) => Number(p.value)).filter((v) => !isNaN(v));
+
+  const highest = numericValues.length ? Math.max(...numericValues) : null;
+  const lowest = numericValues.length ? Math.min(...numericValues) : null;
+
+  // Trend (total change)
+  const trendTotal =
+    numericValues.length >= 2
+      ? numericValues[numericValues.length - 1] - numericValues[0]
+      : 0;
+
+  // Monthly rate
+  const monthlyRate = (() => {
+    if (groupedData.length < 2) return 0;
+
+    const firstDate = DateTime.fromISO(groupedData[0].day);
+    const lastDate = DateTime.fromISO(groupedData[groupedData.length - 1].day);
+
+    const monthsDiff = Math.max(lastDate.diff(firstDate, "months").months, 0.25); // avoid divide by 0
+
+    return trendTotal / monthsDiff;
+  })();
+
+  const formatStat = (val: number | null) => {
+    if (val == null) return "—";
+    return formatValueWithUnit(metric, val, weightUnit);
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView ref={scrollViewRef} contentContainerStyle={{ padding: 16 }}>
@@ -864,6 +895,35 @@ export default function DashboardScreen() {
         ) : (
           <Text style={styles.noDataText}>No data yet — try uploading your first scan!</Text>
         )}
+
+        {/* 📊 Stats Row */}
+        <View style={styles.statsGrid}>
+          <View style={styles.statBox}>
+            <Text style={styles.statLabel}>Monthly Rate</Text>
+            <Text style={styles.statValue}>
+              {monthlyRate >= 0 ? "+" : ""}
+              {formatStat(monthlyRate)}
+            </Text>
+          </View>
+
+          <View style={styles.statBox}>
+            <Text style={styles.statLabel}>Trend</Text>
+            <Text style={styles.statValue}>
+              {trendTotal >= 0 ? "+" : ""}
+              {formatStat(trendTotal)}
+            </Text>
+          </View>
+
+          <View style={styles.statBox}>
+            <Text style={styles.statLabel}>Highest</Text>
+            <Text style={styles.statValue}>{formatStat(highest)}</Text>
+          </View>
+
+          <View style={styles.statBox}>
+            <Text style={styles.statLabel}>Lowest</Text>
+            <Text style={styles.statValue}>{formatStat(lowest)}</Text>
+          </View>
+        </View>
 
         {/* 🎯 Goals */}
         <View style={{ marginTop: 24 }}>
@@ -1436,6 +1496,34 @@ const styles = StyleSheet.create({
 
   goalFilterPillTextActive: {
     color: "#000",
+  },
+
+  statsGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "space-between",
+    marginTop: 16,
+  },
+
+  statBox: {
+    width: "48%",
+    backgroundColor: "#2c2c2c",
+    padding: 14,
+    borderRadius: 12,
+    marginBottom: 12,
+  },
+
+  statLabel: {
+    color: "#9ca3af",
+    fontSize: 13,
+    fontWeight: "600",
+    marginBottom: 6,
+  },
+
+  statValue: {
+    color: "#fff",
+    fontSize: 18,
+    fontWeight: "800",
   },
 
 });
