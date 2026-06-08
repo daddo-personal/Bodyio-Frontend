@@ -19,6 +19,7 @@ import { useRouter } from "expo-router";
 import DateTimePickerModal from "react-native-modal-datetime-picker";
 import { Animated, Easing } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
+import * as StoreReview from "expo-store-review";
 
 const API_URL = Constants.expoConfig.extra.apiUrl;
 const WEIGHT_LIMITS = {
@@ -88,6 +89,19 @@ export default function UploadScreen() {
     }
 
     return { ok: true as const, value: n };
+  };
+
+  const maybeRequestReview = async () => {
+    if (Platform.OS !== "ios") return;
+
+    const isAvailable = await StoreReview.isAvailableAsync();
+    if (!isAvailable) return;
+
+    const hasAlreadyPrompted = await AsyncStorage.getItem("has_review_prompted");
+    if (hasAlreadyPrompted === "true") return;
+
+    await StoreReview.requestReview();
+    await AsyncStorage.setItem("has_review_prompted", "true");
   };
 
   useFocusEffect(
@@ -516,7 +530,12 @@ export default function UploadScreen() {
 
       setTimeout(() => {
         router.push("/(tabs)/dashboard");
+
+        setTimeout(() => {
+          maybeRequestReview();
+        }, 1200);
       }, 600);
+
     } catch (err: any) {
       console.log("NETWORK/JS ERROR", err);
 
