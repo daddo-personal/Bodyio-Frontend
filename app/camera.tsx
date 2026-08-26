@@ -16,7 +16,7 @@ import { Ionicons } from "@expo/vector-icons";
 
 export default function CameraScreen() {
   const router = useRouter();
-  const { label } = useLocalSearchParams();
+  const { label, captureMode } = useLocalSearchParams();
 
   // ----- HOOKS MUST BE FIRST -----
   const [permission, requestPermission] = useCameraPermissions();
@@ -26,7 +26,6 @@ export default function CameraScreen() {
   const [timerSeconds, setTimerSeconds] = useState<number>(10); // 👈 user-configurable timer
   const [countdown, setCountdown] = useState<number | null>(null);
   const [isTaking, setIsTaking] = useState(false);
-
   // ----- ANIMATION HOOK -----
   const toggleAnim = useRef(new Animated.Value(1)).current;
 
@@ -206,54 +205,55 @@ export default function CameraScreen() {
         </View>
       )}
 
-      {/* TIMER TOGGLE + OPTIONS */}
-      <View style={styles.toggleContainer}>
-        <TouchableOpacity
-          onPress={toggleTimer}
-          activeOpacity={0.7}
-          disabled={timerDisabled}
-        >
-          <Animated.View
-            style={[styles.togglePill, { backgroundColor: pillBackground }]}
+      {/* TIMER TOGGLE + OPTIONS - tripod only */}
+      {captureMode !== "mirror" && (
+        <View style={styles.toggleContainer}>
+          <TouchableOpacity
+            onPress={toggleTimer}
+            activeOpacity={0.7}
+            disabled={timerDisabled}
           >
             <Animated.View
-              style={[
-                styles.toggleKnob,
-                { transform: [{ translateX: knobPosition }] },
-              ]}
-            />
-          </Animated.View>
-        </TouchableOpacity>
-
-        <Text style={styles.toggleLabel}>
-          {timerEnabled ? `Timer ${timerSeconds}s` : "Timer OFF"}
-        </Text>
-
-        {/* Timer preset buttons */}
-        <View style={styles.timerOptionsRow}>
-          {[3, 5, 10].map((sec) => (
-            <TouchableOpacity
-              key={sec}
-              disabled={timerDisabled}
-              onPress={() => setTimerSeconds(sec)}
-              style={[
-                styles.timerOption,
-                timerSeconds === sec && styles.timerOptionActive,
-                timerDisabled && { opacity: 0.5 },
-              ]}
+              style={[styles.togglePill, { backgroundColor: pillBackground }]}
             >
-              <Text
+              <Animated.View
                 style={[
-                  styles.timerOptionText,
-                  timerSeconds === sec && styles.timerOptionTextActive,
+                  styles.toggleKnob,
+                  { transform: [{ translateX: knobPosition }] },
+                ]}
+              />
+            </Animated.View>
+          </TouchableOpacity>
+
+          <Text style={styles.toggleLabel}>
+            {timerEnabled ? `Timer ${timerSeconds}s` : "Timer OFF"}
+          </Text>
+
+          <View style={styles.timerOptionsRow}>
+            {[3, 5, 10].map((sec) => (
+              <TouchableOpacity
+                key={sec}
+                disabled={timerDisabled}
+                onPress={() => setTimerSeconds(sec)}
+                style={[
+                  styles.timerOption,
+                  timerSeconds === sec && styles.timerOptionActive,
+                  timerDisabled && { opacity: 0.5 },
                 ]}
               >
-                {sec}s
-              </Text>
-            </TouchableOpacity>
-          ))}
+                <Text
+                  style={[
+                    styles.timerOptionText,
+                    timerSeconds === sec && styles.timerOptionTextActive,
+                  ]}
+                >
+                  {sec}s
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
         </View>
-      </View>
+      )}
 
       {/* CAPTURE BUTTON */}
       <View style={styles.captureContainer}>
@@ -262,7 +262,13 @@ export default function CameraScreen() {
             styles.captureButton,
             isTaking && timerEnabled && { opacity: 0.4 },
           ]}
-          onPress={() => (timerEnabled ? startCountdown() : takePhoto())}
+          onPress={() =>
+            captureMode === "mirror"
+              ? takePhoto()
+              : timerEnabled
+                ? startCountdown()
+                : takePhoto()
+          }
           disabled={isTaking && timerEnabled}
         />
       </View>

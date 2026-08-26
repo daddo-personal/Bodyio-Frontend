@@ -36,7 +36,7 @@ export default function OnboardingScreen() {
       showSkip={true}
       skipLabel="Skip"
       nextLabel="Next"
-      doneLabel="Get Started"
+      doneLabel="Continue"
       skipToPage={3}
       controlStatusBar={false}
       imageContainerStyles={{
@@ -81,17 +81,17 @@ export default function OnboardingScreen() {
           subtitle:
             "Turn sideways with relaxed arms. Frame your body from head to just below the knees — do not include your feet.",
         },
-        {
+                {
           backgroundColor: "#1f1f1f",
           image: (
             <Image
-              source={require("../assets/images/onboarding/back_pose.png")}
+              source={require("../assets/images/onboarding/mirror_selfie.png")}
               style={{ width: 250, height: 250, resizeMode: "contain" }}
             />
           ),
-          title: "🔙 Back Photo",
+          title: "📸 Mirror Selfie",
           subtitle:
-            "Face away from the camera with relaxed arms. Frame your body from head to just below the knees — do not include your feet.",
+            "Take your photo in a full-length mirror. Make sure your head and knees are fully visible in the frame.",
         },
       ]}
       DotComponent={({ selected }) => (
