@@ -448,11 +448,15 @@ export default function SettingsScreen() {
       });
 
       const updated = await res.json();
-
+      console.log("DKA firstname: ", updated.first_name)
+      console.log("DKA lastname: ", updated.last_name)
       if (res.ok) {
         Alert.alert("Profile Updated", "Your changes have been saved.");
         await AsyncStorage.setItem("user", JSON.stringify(updated));
         setUser(updated);
+        // setFirstName(updated.first_name || "");
+        // setLastName(updated.last_name || "");
+        // setEmail(updated.email || "");
         setEditing(false);
       } else {
         Alert.alert("Error", updated.detail || "Could not update profile.");
@@ -518,7 +522,7 @@ export default function SettingsScreen() {
                   <View
                     style={{
                       width: `${Math.min(
-                        ((user?.scan_count ?? 0) / 5) * 100,
+                        ((user?.scan_count ?? 0) / 3) * 100,
                         100
                       )}%`,
                       height: "100%",
@@ -535,7 +539,7 @@ export default function SettingsScreen() {
                     textAlign: "right",
                   }}
                 >
-                  {(user?.scan_count ?? 0)} / 5
+                  {(user?.scan_count ?? 0)} / 3
                 </Text>
               </View>
             )}
