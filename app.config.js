@@ -6,7 +6,7 @@ export default ({ config }) => ({
     name: "body.io",
     slug: "body-io",
     owner: "daddo0823",
-    version: "1.0.4",
+    version: "1.0.5",
     orientation: "portrait",
     icon: "./assets/images/BodyIO.png",
     scheme: "frontend",
