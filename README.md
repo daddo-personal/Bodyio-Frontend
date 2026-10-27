@@ -17,11 +17,27 @@ This is an [Expo](https://expo.dev) project created with [`create-expo-app`](htt
    ```
 
 ### EAS ios build development
-https://expo.dev/accounts/daddo0823/settings/apple-devices to register device
+https://expo.dev/accounts/<account_id>/settings/apple-devices to register device
 rm -rf node_modules package-lock.json
 npm install
 eas build -p ios --profile development --clear-cache
 npx expo start
+
+### EAS android build development
+rm -rf node_modules package-lock.json
+npm install
+eas build -p android --profile development --clear-cache
+eas build -p android --profile preview --clear-cache for AAB needed for android playstore release 
+
+Once app is built for android preview/production visit https://play.google.com/console/developers/app/keymanagement to and copy SHA1 fingerprint. Paste this fingerprint in https://console.cloud.google.com/apis/credentials?project=feisty-current-227120 for android
+
+Once app is built for android preview, you can use eas credentials -p android and copy SHA-1 fingerprint
+and update  https://console.cloud.google.com/apis/credentials?project=feisty-current-227120 for android
+
+## Google play app signing 
+https://play.google.com/console/developers/app/keymanagement
+
+npx expo start --dev-client
 
 ## List secrets
 eas secret:list
@@ -29,6 +45,9 @@ eas secret:list
 ### Using ios TestFlight
 eas build -p ios --profile production
 eas submit -p ios --latest
+
+### Android google play production
+eas build -p android --profile production --clear-cache
 
 2. Start the app
 

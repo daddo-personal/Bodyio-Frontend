@@ -22,7 +22,7 @@ import { useFocusEffect } from "@react-navigation/native";
 import Constants from "expo-constants";
 import { useRouter } from "expo-router";
 import { DateTime } from "luxon";
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Animated, Easing } from "react-native";
 
 import {
@@ -32,6 +32,7 @@ import {
   KeyboardAvoidingView,
   Modal,
   Platform,
+  PanResponder,
   SafeAreaView,
   ScrollView,
   StyleSheet,
@@ -42,9 +43,16 @@ import {
 } from "react-native";
 import { LineChart } from "react-native-chart-kit";
 import { Ionicons } from "@expo/vector-icons";
+import { DashboardSkeletonScreen } from "../../components/screen-skeletons";
 
 const API_URL = Constants.expoConfig.extra.apiUrl;
 const MAX_FREE_SCANS = 5;
+const CHART_WIDTH = Dimensions.get("window").width - 40;
+const CHART_HEIGHT = 260;
+const SCRUB_TOOLTIP_WIDTH = 140;
+const SCRUB_TOOLTIP_HEIGHT = 52;
+const SCRUB_TOOLTIP_EDGE_PADDING = 8;
+const SCRUB_TOOLTIP_VERTICAL_OFFSET = 12;
 const LIMITS = {
   fat: { min: 2, max: 70 },
   muscle: { min: 15, max: 60 },
@@ -54,6 +62,7 @@ const LIMITS = {
 // Helpers
 // ----------------------
 const safe = (v: any) => (typeof v === "number" ? v.toFixed(2) : "—");
+const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
 const METRICS = [
   { key: "weight", label: "Weight", type: "absolute", premium: false, unitType: "weight" },
@@ -97,6 +106,10 @@ export default function DashboardScreen() {
   const [goalProgress, setGoalProgress] = useState<any | null>(null);
   const [progressLoading, setProgressLoading] = useState(false);
   const [showModal, setShowModal] = useState(false);
+  const [isScrubbingChart, setIsScrubbingChart] = useState(false);
+  const [scrubIndex, setScrubIndex] = useState<number | null>(null);
+  const chartPointsRef = useRef<Array<{ x: number; y: number }>>([]);
+  const paywallCheckDoneRef = useRef(false);
 
   // ✅ Verify / Update inside modal (NO ROUTES)
   const [showAccuracyModal, setShowAccuracyModal] = useState(false);
@@ -135,6 +148,35 @@ export default function DashboardScreen() {
     ]).start(() => {
       setShouldGlow(false);
     });
+  };
+
+  const maybeOpenPaywall = async () => {
+    if (paywallCheckDoneRef.current || !userId || isPremium) return;
+
+    try {
+      const afterScan = await AsyncStorage.getItem("show_paywall_after_scan");
+      if (afterScan === "true") {
+        await AsyncStorage.removeItem("show_paywall_after_scan");
+        await AsyncStorage.setItem("paywall_last_seen_at", String(Date.now()));
+        router.push({ pathname: "/paywall", params: { source: "after_scan" } });
+        paywallCheckDoneRef.current = true;
+        return;
+      }
+
+      const lastSeenRaw = await AsyncStorage.getItem("paywall_last_seen_at");
+      const lastSeen = lastSeenRaw ? Number(lastSeenRaw) : 0;
+      const twelveHoursMs = 12 * 60 * 60 * 1000;
+      const canShowAgain = !lastSeen || Date.now() - lastSeen >= twelveHoursMs;
+
+      if (scanCount > 0 && canShowAgain) {
+        await AsyncStorage.setItem("paywall_last_seen_at", String(Date.now()));
+        router.push({ pathname: "/paywall", params: { source: "dashboard" } });
+      }
+
+      paywallCheckDoneRef.current = true;
+    } catch (e) {
+      console.log("maybeOpenPaywall error:", e);
+    }
   };
 
   const unitForMetric = (metricKey: string, weightUnit: "lbs" | "kg") => {
@@ -286,6 +328,10 @@ export default function DashboardScreen() {
     }
   }, [isPremium, goalMetricFilter]);
 
+  useEffect(() => {
+    maybeOpenPaywall();
+  }, [userId, isPremium, scanCount]);
+
   // ----------------------
   // Glow flag
   // ----------------------
@@ -364,6 +410,7 @@ export default function DashboardScreen() {
   useFocusEffect(
     useCallback(() => {
       const loadUser = async () => {
+        paywallCheckDoneRef.current = false;
         const saved = await AsyncStorage.getItem("user");
         if (scrollViewRef.current) {
           scrollViewRef.current.scrollTo({ y: 0, animated: false });
@@ -589,16 +636,115 @@ export default function DashboardScreen() {
   const filteredActiveGoals =
     goalMetricFilter === "all" ? goals : goals.filter((g) => g.metric === goalMetricFilter);
 
+  const chartInsetX = 28;
+  const chartInsetY = 22;
+  const chartUsableWidth = Math.max(CHART_WIDTH - chartInsetX * 2, 1);
+  const chartUsableHeight = Math.max(CHART_HEIGHT - chartInsetY * 2, 1);
+
+  const getActualPoint = (index: number) => {
+    const point = chartPointsRef.current[index];
+    if (!point) return null;
+    if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) return null;
+    return point;
+  };
+
+  const getIndexFromX = (x: number) => {
+    if (!values.length) return null;
+    if (values.length === 1) return 0;
+
+    if (chartPointsRef.current.length >= values.length) {
+      let nearestIndex = 0;
+      let nearestDistance = Number.POSITIVE_INFINITY;
+
+      for (let i = 0; i < values.length; i++) {
+        const point = getActualPoint(i);
+        if (!point) continue;
+
+        const distance = Math.abs(point.x - x);
+        if (distance < nearestDistance) {
+          nearestDistance = distance;
+          nearestIndex = i;
+        }
+      }
+
+      return nearestIndex;
+    }
+
+    const step = chartUsableWidth / (values.length - 1);
+    const raw = Math.round((x - chartInsetX) / step);
+    const clamped = Math.min(values.length - 1, Math.max(0, raw));
+    return clamped;
+  };
+
+  const updateScrubFromX = (x: number) => {
+    const idx = getIndexFromX(x);
+    if (idx == null) return;
+    setScrubIndex(idx);
+  };
+
+  const scrubResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => values.length > 0,
+        onMoveShouldSetPanResponder: () => values.length > 0,
+        onPanResponderGrant: (evt) => {
+          setIsScrubbingChart(true);
+          updateScrubFromX(evt.nativeEvent.locationX);
+        },
+        onPanResponderMove: (evt) => {
+          updateScrubFromX(evt.nativeEvent.locationX);
+        },
+        onPanResponderRelease: () => {
+          setIsScrubbingChart(false);
+        },
+        onPanResponderTerminate: () => {
+          setIsScrubbingChart(false);
+        },
+      }),
+    [values.length, chartUsableWidth]
+  );
+
+  const chartMin = values.length ? Math.min(...values) : 0;
+  const chartMax = values.length ? Math.max(...values) : 1;
+  const chartRange = Math.max(chartMax - chartMin, 1e-6);
+
+  const selectedScrubPoint =
+    scrubIndex != null && scrubIndex >= 0 && scrubIndex < groupedData.length
+      ? groupedData[scrubIndex]
+      : null;
+
+  const scrubX =
+    scrubIndex == null || values.length <= 1
+      ? chartInsetX
+      : getActualPoint(scrubIndex)?.x ?? chartInsetX + (scrubIndex / (values.length - 1)) * chartUsableWidth;
+
+  const scrubY =
+    selectedScrubPoint == null
+      ? chartInsetY
+      : getActualPoint(scrubIndex ?? 0)?.y ??
+        chartInsetY + (1 - (Number(values[scrubIndex ?? 0]) - chartMin) / chartRange) * chartUsableHeight;
+
+  const scrubTooltipLeft = clamp(
+    scrubX - SCRUB_TOOLTIP_WIDTH / 2,
+    SCRUB_TOOLTIP_EDGE_PADDING,
+    CHART_WIDTH - SCRUB_TOOLTIP_WIDTH - SCRUB_TOOLTIP_EDGE_PADDING
+  );
+
+  const preferredScrubTooltipTop = scrubY - SCRUB_TOOLTIP_HEIGHT - SCRUB_TOOLTIP_VERTICAL_OFFSET;
+  const fallbackScrubTooltipTop = scrubY + SCRUB_TOOLTIP_VERTICAL_OFFSET;
+  const maxTooltipTop = CHART_HEIGHT - SCRUB_TOOLTIP_HEIGHT - SCRUB_TOOLTIP_EDGE_PADDING;
+
+  const scrubTooltipTop =
+    preferredScrubTooltipTop < SCRUB_TOOLTIP_EDGE_PADDING
+      ? clamp(fallbackScrubTooltipTop, SCRUB_TOOLTIP_EDGE_PADDING, maxTooltipTop)
+      : clamp(preferredScrubTooltipTop, SCRUB_TOOLTIP_EDGE_PADDING, maxTooltipTop);
+
 
   // ----------------------
   // Loading state
   // ----------------------
   if (!userId || (loading && !recent)) {
-    return (
-      <SafeAreaView style={styles.centered}>
-        <ActivityIndicator size="large" color="#fff" />
-      </SafeAreaView>
-    );
+    return <DashboardSkeletonScreen />;
   }
 
   // ----------------------
@@ -634,7 +780,11 @@ export default function DashboardScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView ref={scrollViewRef} contentContainerStyle={{ padding: 16 }}>
+      <ScrollView
+        ref={scrollViewRef}
+        contentContainerStyle={{ padding: 16 }}
+        scrollEnabled={!isScrubbingChart}
+      >
         <Text style={styles.greeting}>👋 Hi, {userName}!</Text>
 
         {/* 🧾 Recent Scan */}
@@ -828,8 +978,13 @@ export default function DashboardScreen() {
             return (
               <TouchableOpacity
                 key={m.key}
-                onPress={() => !disabled && setMetric(m.key)}
-                disabled={disabled}
+                onPress={() => {
+                  if (disabled) {
+                    router.push({ pathname: "/paywall", params: { source: "locked_metric" } });
+                    return;
+                  }
+                  setMetric(m.key);
+                }}
                 style={[
                   styles.metricButton,
                   {
@@ -864,8 +1019,8 @@ export default function DashboardScreen() {
           <View style={styles.chartCard}>
             <LineChart
               data={{ labels, datasets: [{ data: values, color: () => color }] }}
-              width={Dimensions.get("window").width - 40}
-              height={260}
+              width={CHART_WIDTH}
+              height={CHART_HEIGHT}
               yAxisSuffix={
                 metric === "weight"
                   ? weightUnit === "kg"
@@ -888,9 +1043,43 @@ export default function DashboardScreen() {
                 labelColor: () => "#d1d5db",
                 propsForDots: { r: "4", strokeWidth: "2", stroke: color },
               }}
+              renderDotContent={({ x, y, index }) => {
+                chartPointsRef.current[index] = { x, y };
+                return null;
+              }}
               bezier
               style={{ borderRadius: 16 }}
             />
+
+            <View
+              style={styles.chartTouchOverlay}
+              {...scrubResponder.panHandlers}
+            >
+              {isScrubbingChart && selectedScrubPoint && (
+                <>
+                  <View pointerEvents="none" style={[styles.scrubLine, { left: scrubX }]} />
+                  <View pointerEvents="none" style={[styles.scrubDot, { left: scrubX - 7, top: scrubY - 7, borderColor: color }]} />
+
+                  <View
+                    pointerEvents="none"
+                    style={[
+                      styles.scrubTooltip,
+                      {
+                        left: scrubTooltipLeft,
+                        top: scrubTooltipTop,
+                      },
+                    ]}
+                  >
+                    <Text style={styles.scrubTooltipValue}>
+                      {formatValueWithUnit(metric, Number(values[scrubIndex ?? 0]), weightUnit)}
+                    </Text>
+                    <Text style={styles.scrubTooltipDate}>
+                      {DateTime.fromISO(selectedScrubPoint.day).toFormat("LLL d, yyyy")}
+                    </Text>
+                  </View>
+                </>
+              )}
+            </View>
           </View>
         ) : (
           <Text style={styles.noDataText}>No data yet — try uploading your first scan!</Text>
@@ -1048,7 +1237,7 @@ export default function DashboardScreen() {
                         {/* Projected Value */}
                         {predicted != null && (
                           <View style={styles.statCard}>
-                            <Text style={styles.statLabel}>Projected Value</Text>
+                            <Text style={styles.statCardLabel}>Projected Value</Text>
                             <Text style={styles.statNumber}>
                               {predicted.toFixed(decimals)}
                               {unit ? ` ${unit}` : ""}
@@ -1202,6 +1391,55 @@ const styles = StyleSheet.create({
 
   chartCard: { backgroundColor: "#2c2c2c", borderRadius: 16, padding: 10 },
 
+  chartTouchOverlay: {
+    position: "absolute",
+    top: 10,
+    left: 10,
+    right: 10,
+    bottom: 10,
+  },
+
+  scrubLine: {
+    position: "absolute",
+    top: 14,
+    bottom: 34,
+    width: 1.5,
+    backgroundColor: "#e5e7eb",
+    opacity: 0.85,
+  },
+
+  scrubDot: {
+    position: "absolute",
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: "#fff",
+    borderWidth: 2,
+  },
+
+  scrubTooltip: {
+    position: "absolute",
+    width: SCRUB_TOOLTIP_WIDTH,
+    borderRadius: 10,
+    backgroundColor: "rgba(17,24,39,0.95)",
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderWidth: 1,
+    borderColor: "#4b5563",
+  },
+
+  scrubTooltipValue: {
+    color: "#fff",
+    fontWeight: "800",
+    fontSize: 13,
+  },
+
+  scrubTooltipDate: {
+    color: "#d1d5db",
+    fontSize: 11,
+    marginTop: 2,
+  },
+
   noDataText: { textAlign: "center", color: "#9ca3af" },
 
   metricsGrid: {
@@ -1289,7 +1527,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
 
-  statLabel: { color: "#9ca3af", fontSize: 14, marginBottom: 4 },
+  statCardLabel: { color: "#9ca3af", fontSize: 14, marginBottom: 4 },
 
   statNumber: { color: "#fff", fontSize: 32, fontWeight: "700" },
 

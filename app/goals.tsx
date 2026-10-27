@@ -535,8 +535,14 @@ export default function GoalsScreen() {
           return (
             <TouchableOpacity
               key={m.key}
-              disabled={disabled}
-              onPress={() => !disabled && setMetricFilter(m.key)}
+              onPress={() => {
+                if (disabled) {
+                  router.push({ pathname: "/paywall", params: { source: "goals_filter_locked" } });
+                  return;
+                }
+
+                setMetricFilter(m.key);
+              }}
               style={[
                 styles.filterPill,
                 selected && styles.filterPillActive,
@@ -657,13 +663,17 @@ export default function GoalsScreen() {
 
                     return (
                       <TouchableOpacity
-                        disabled={disabled}
                         style={[
                           styles.metricChip,
                           selected && styles.metricChipActive,
                           disabled && styles.metricChipDisabled,
                         ]}
                         onPress={() => {
+                          if (disabled) {
+                            router.push({ pathname: "/paywall", params: { source: "goals_metric_locked" } });
+                            return;
+                          }
+
                           setEditingGoal({ ...editingGoal, metric: item.key });
                           setTargetValue(""); // reset input when switching metric
                         }}

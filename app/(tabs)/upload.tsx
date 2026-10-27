@@ -943,6 +943,11 @@ export default function UploadScreen() {
         "true"
       );
 
+      await AsyncStorage.setItem(
+        "show_paywall_after_scan",
+        "true"
+      );
+
       // --------------------------------------------------------
       // Reset UI
       // --------------------------------------------------------

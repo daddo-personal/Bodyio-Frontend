@@ -2,7 +2,6 @@ import * as FileSystem from "expo-file-system/legacy";
 import * as Sharing from "expo-sharing";
 import React, { useCallback, useEffect, useState } from "react";
 import {
-  ActivityIndicator,
   Alert,
   SafeAreaView,
   ScrollView,
@@ -20,10 +19,10 @@ import { useRouter } from "expo-router";
 import DateTimePickerModal from "react-native-modal-datetime-picker";
 
 import Purchases from "react-native-purchases";
-import useRevenueCat from "../../hooks/useRevenueCat";
 import { registerForPushNotificationsAsync } from "../../hooks/notifications";
 import * as Notifications from "expo-notifications";
 import { Linking } from "react-native";
+import { SettingsSkeletonScreen } from "../../components/screen-skeletons";
 
 const PRIVACY_POLICY_URL = "https://privacy.bodyio.org/privacy";
 const TERMS_OF_USE_URL = "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/";
@@ -51,9 +50,6 @@ export default function SettingsScreen() {
     new Date().getFullYear().toString()
   );
   const [isYearPickerVisible, setYearPickerVisible] = useState(false);
-
-  // RevenueCat offerings hook
-  const { offerings, loading: rcLoading } = useRevenueCat();
 
   async function savePushTokenToBackend(userId: number, pushToken: string) {
     try {
@@ -322,45 +318,11 @@ export default function SettingsScreen() {
     ensureRevenueCatUser();
   }, [user?.id]);
 
-  async function handleRestorePurchases() {
-    try {
-      setLoading(true); // or create a separate restoring state if you prefer
-
-      // 1) Restore via RevenueCat / StoreKit
-      const info = await Purchases.restorePurchases();
-      setCustomerInfo(info);
-
-      // 2) Optional: re-verify / refresh backend premium status
-      if (user?.id) {
-        try {
-          const verifyUrl = `${API_URL}/users/${user.id}/${Platform.OS}/verify_premium`;
-          await fetch(verifyUrl);
-
-          const res = await fetch(`${API_URL}/users/${user.id}`);
-          if (res.ok) {
-            const updated = await res.json();
-            setUser(updated);
-            await AsyncStorage.setItem("user", JSON.stringify(updated));
-          }
-        } catch (e) {
-          console.log("Backend refresh after restore failed:", e);
-        }
-      }
-
-      Alert.alert("Restored", "Your subscription has been restored.");
-    } catch (e: any) {
-      console.log("restorePurchases error:", e);
-      Alert.alert("Restore Failed", e?.message || "Could not restore purchases.");
-    } finally {
-      setLoading(false);
-    }
-  }
-
   // -------------------------------------------
   // Real-time subscription refresh listener
   // -------------------------------------------
   useEffect(() => {
-    const listener = Purchases.addCustomerInfoUpdateListener(async (info) => {
+    const listener = async (info: any) => {
       console.log("🔄 RevenueCat customer updated:", info);
       setCustomerInfo(info);
 
@@ -376,39 +338,15 @@ export default function SettingsScreen() {
           console.log("❌ Could not refresh user after purchase", err);
         }
       }
-    });
+
+    };
+
+    Purchases.addCustomerInfoUpdateListener(listener);
 
     return () => {
       Purchases.removeCustomerInfoUpdateListener(listener);
     };
   }, [user]);
-
-  // -------------------------------------------
-  // Purchase handler
-  // -------------------------------------------
-  async function purchasePackage(pkg) {
-    try {
-      await Purchases.purchasePackage(pkg);
-
-      Alert.alert("Success!", "Your Premium subscription is now active.", [
-        {
-          text: "OK",
-          onPress: async () => {
-            // optional: optimistic UI immediately
-            setUser((prev: any) => (prev ? { ...prev, is_premium: true } : prev));
-
-            // then confirm with backend + refresh all UI
-            const id = user?.id;
-            if (id) await refreshUserFromBackend(id);
-          },
-        },
-      ]);
-    } catch (err: any) {
-      if (err.userCancelled) return;
-      console.log("❌ Purchase error:", err);
-      Alert.alert("Purchase Failed", err.message || "Unknown error occurred.");
-    }
-  }
 
   // -------------------------------------------
   // Save profile
@@ -468,13 +406,7 @@ export default function SettingsScreen() {
   };
 
   if (loading) {
-    return (
-      <SafeAreaView style={styles.safeArea}>
-        <View style={styles.centered}>
-          <ActivityIndicator size="large" color="#fff" />
-        </View>
-      </SafeAreaView>
-    );
+    return <SettingsSkeletonScreen />;
   }
 
   // Backend premium status
@@ -548,7 +480,6 @@ export default function SettingsScreen() {
           {/* PRICING OPTIONS */}
           {!isPremium && (
             <View style={{ marginTop: 24, width: "100%" }}>
-              {/* Shared features list */}
               <View
                 style={{
                   backgroundColor: "#1f1f1f",
@@ -556,7 +487,7 @@ export default function SettingsScreen() {
                   borderRadius: 12,
                   borderWidth: 1,
                   borderColor: "#3f3f3f",
-                  marginBottom: 20,
+                  marginBottom: 16,
                 }}
               >
                 <Text
@@ -573,145 +504,21 @@ export default function SettingsScreen() {
                 <Text style={styles.bullet}>• Unlimited Scans</Text>
                 <Text style={styles.bullet}>• All Body Metrics</Text>
                 <Text style={styles.bullet}>• CSV Data Downloads</Text>
-                <Text style={styles.bullet}>
-                  • Goals & Insights for all metrics
-                </Text>
-
+                <Text style={styles.bullet}>• Goals & Insights for all metrics</Text>
               </View>
 
-              {offerings?.availablePackages?.map((pkg) => {
-                const p = pkg.product;
-                const isMonthly = pkg.packageType === "MONTHLY";
-                const isAnnual = pkg.packageType === "ANNUAL";
-
-                return (
-                  <TouchableOpacity
-                    key={pkg.identifier}
-                    onPress={() => purchasePackage(pkg)}
-                    style={{
-                      backgroundColor: isAnnual ? "#252c1f" : "#1f1f1f",
-                      borderColor: isAnnual ? "#16a34a" : "#3f3f3f",
-                      borderWidth: 1.5,
-                      padding: 18,
-                      borderRadius: 14,
-                      marginBottom: 20,
-                    }}
-                  >
-                    {/* BEST VALUE badge */}
-                    {isAnnual && (
-                      <View
-                        style={{
-                          position: "absolute",
-                          top: -12,
-                          right: -12,
-                          backgroundColor: "#16a34a",
-                          paddingHorizontal: 10,
-                          paddingVertical: 4,
-                          borderRadius: 8,
-                        }}
-                      >
-                        <Text
-                          style={{
-                            color: "#fff",
-                            fontSize: 11,
-                            fontWeight: "700",
-                          }}
-                        >
-                          BEST VALUE
-                        </Text>
-                      </View>
-                    )}
-
-                    {/* Title */}
-                    <Text
-                      style={{
-                        fontSize: 18,
-                        fontWeight: "700",
-                        color: "#fff",
-                        marginBottom: 4,
-                      }}
-                    >
-                      {isMonthly ? "Monthly Premium" : "Yearly Premium"}
-                    </Text>
-
-                    {/* Price */}
-                    <Text
-                      style={{
-                        fontSize: 16,
-                        color: "#d1d5db",
-                        marginBottom: 12,
-                      }}
-                    >
-                      {p.priceString} {isMonthly ? "/ month" : "/ year"}
-                    </Text>
-
-                    {/* Extra yearly savings text */}
-                    {isAnnual && (
-                      <Text
-                        style={{
-                          color: "#16a34a",
-                          marginBottom: 12,
-                          fontSize: 14,
-                          fontWeight: "600",
-                        }}
-                      >
-                        Save 50% compared to monthly
-                      </Text>
-                    )}
-
-                    {/* Button */}
-                    <View
-                      style={{
-                        marginTop: 4,
-                        backgroundColor: "#fff",
-                        paddingVertical: 12,
-                        borderRadius: 8,
-                        alignItems: "center",
-                      }}
-                    >
-                      <Text
-                        style={{
-                          color: "#000",
-                          fontSize: 16,
-                          fontWeight: "600",
-                        }}
-                      >
-                        {isMonthly
-                          ? "Choose Monthly Plan"
-                          : "Choose Yearly Plan"}
-                      </Text>
-                    </View>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-          )}
-
-          {Platform.OS === "ios" && (
-            <View style={{ marginBottom: 20 }}>
               <TouchableOpacity
-                onPress={handleRestorePurchases}
+                onPress={() => router.push({ pathname: "/paywall", params: { source: "settings" } })}
                 style={{
-                  backgroundColor: "#1f1f1f",
-                  borderColor: "#3f3f3f",
-                  borderWidth: 1.5,
-                  padding: 18,
-                  borderRadius: 14,
+                  backgroundColor: "#16a34a",
+                  paddingVertical: 14,
+                  borderRadius: 10,
+                  alignItems: "center",
                 }}
               >
-                <View
-                  style={{
-                    marginTop: 4,
-                    backgroundColor: "#fff",
-                    paddingVertical: 12,
-                    borderRadius: 8,
-                    alignItems: "center",
-                  }}
-                >
-                  <Text style={{ color: "#000", fontSize: 16, fontWeight: "600" }}>
-                    Restore Purchases
-                  </Text>
-                </View>
+                <Text style={{ color: "#fff", fontSize: 16, fontWeight: "700" }}>
+                  See Premium Plans
+                </Text>
               </TouchableOpacity>
             </View>
           )}

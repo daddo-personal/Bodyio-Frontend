@@ -18,6 +18,7 @@ import { useFocusEffect } from "@react-navigation/native";
 import { DateTime } from "luxon";
 import { Swipeable, RectButton } from "react-native-gesture-handler";
 import { Ionicons } from "@expo/vector-icons";
+import { HistorySkeletonScreen } from "../../components/screen-skeletons";
 
 const API_URL = Constants.expoConfig?.extra?.apiUrl;
 
@@ -30,7 +31,8 @@ const METRICS = [
 
 export default function MetricsHistory() {
   const [metrics, setMetrics] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [accessResolved, setAccessResolved] = useState(false);
   const [isPremium, setIsPremium] = useState(false);
   const [weightUnit, setWeightUnit] = useState<"lbs" | "kg">("lbs");
   const [showSwipeTipHistory, setShowSwipeTipHistory] = useState(false);
@@ -125,17 +127,33 @@ export default function MetricsHistory() {
   };
 
   const fetchMetrics = async () => {
-    setLoading(true);
+    setAccessResolved(false);
     try {
       const saved = await AsyncStorage.getItem("user");
       if (!saved) return;
 
       const parsed = JSON.parse(saved);
+      const cachedPremium = Boolean(parsed?.is_premium);
+
+      setIsPremium(cachedPremium);
+      setAccessResolved(true);
+
+      if (!cachedPremium) {
+        setMetrics([]);
+        return;
+      }
+
+      setLoading(true);
 
       const dataRes = await fetch(`${API_URL}/users/${parsed.id}`);
       if (dataRes.ok) {
         const data = await dataRes.json();
         setIsPremium(Boolean(data.is_premium));
+
+        if (!data.is_premium) {
+          setMetrics([]);
+          return;
+        }
       }
 
       const res = await fetch(`${API_URL}/metrics/${parsed.id}`);
@@ -155,6 +173,7 @@ export default function MetricsHistory() {
     } catch (err) {
       console.error("❌ Error fetching metrics:", err);
     } finally {
+      setAccessResolved(true);
       setLoading(false);
     }
   };
@@ -341,7 +360,7 @@ export default function MetricsHistory() {
     );
   };
 
-  if (!loading && !isPremium) {
+  if (accessResolved && !loading && !isPremium) {
     return (
       <SafeAreaView style={styles.lockWrapper}>
         <View style={styles.lockContent}>
@@ -351,7 +370,7 @@ export default function MetricsHistory() {
           </Text>
           <TouchableOpacity
             style={styles.upgradeButton}
-            onPress={() => router.push("/settings")}
+            onPress={() => router.push({ pathname: "/paywall", params: { source: "history_locked" } })}
           >
             <Text style={styles.upgradeButtonText}>Upgrade Now</Text>
           </TouchableOpacity>
@@ -360,12 +379,12 @@ export default function MetricsHistory() {
     );
   }
 
+  if (!accessResolved) {
+    return <SafeAreaView style={styles.safeArea} />;
+  }
+
   if (loading) {
-    return (
-      <SafeAreaView style={styles.centered}>
-        <ActivityIndicator size="large" color="#22d3ee" />
-      </SafeAreaView>
-    );
+    return <HistorySkeletonScreen />;
   }
 
   return (
